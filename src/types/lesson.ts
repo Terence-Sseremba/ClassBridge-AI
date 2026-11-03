@@ -23,7 +23,7 @@ export interface CatchUpExplanation {
   createdAt: string
   throughSegmentId: string
   text: string
-  source: 'mock'
+  source: 'mock' | 'muse'
 }
 
 export interface StudyMessage {
@@ -36,6 +36,7 @@ export interface StudyMessage {
 
 export interface LessonSession {
   id: string
+  transcriptSource?: 'sample' | 'muse'
   title: string
   date: string
   updatedAt: string

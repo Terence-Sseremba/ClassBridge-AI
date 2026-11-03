@@ -10,6 +10,9 @@ export default defineConfig({
         target: 'http://127.0.0.1:8787',
         ws: true,
       },
+      '/api/catch-up': {
+        target: 'http://127.0.0.1:8787',
+      },
     },
   },
 })

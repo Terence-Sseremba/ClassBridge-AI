@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -24,7 +25,14 @@ import {
   X,
 } from 'lucide-react'
 import { lessonStorage } from './storage/lessons'
-import { mockReasoningService } from './services/reasoning'
+import {
+  CatchUpRequestError,
+  catchUpCharacterCount,
+  hasEnoughCatchUpContext,
+  mockReasoningService,
+  museCatchUp,
+  selectCatchUpContext,
+} from './services/reasoning'
 import { mockTranscriptionService } from './services/transcription'
 import { startMuseTranscription } from './services/museTranscription'
 import type { MuseSession, MuseStatus } from './services/museTranscription'
@@ -47,27 +55,31 @@ function shortDate(date: string) {
   }).format(new Date(date))
 }
 
-function createLesson(title: string): LessonSession {
+function createLesson(title: string, source: 'sample' | 'muse'): LessonSession {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
+    transcriptSource: source,
     title: title.trim() || 'Untitled class',
     date: now,
     updatedAt: now,
     status: 'live',
     transcript: [],
-    concepts: [
-      {
-        id: 'photosynthesis',
-        title: 'Photosynthesis',
-        description: 'How plants turn light into stored chemical energy.',
-      },
-      {
-        id: 'calvin-cycle',
-        title: 'Calvin cycle',
-        description: 'A stage that uses carbon dioxide to build sugars.',
-      },
-    ],
+    concepts:
+      source === 'sample'
+        ? [
+            {
+              id: 'photosynthesis',
+              title: 'Photosynthesis',
+              description: 'How plants turn light into stored chemical energy.',
+            },
+            {
+              id: 'calvin-cycle',
+              title: 'Calvin cycle',
+              description: 'A stage that uses carbon dioxide to build sugars.',
+            },
+          ]
+        : [],
     bookmarks: [],
     catchUps: [],
     studyMessages: [],
@@ -88,6 +100,8 @@ function App() {
   const [museStatus, setMuseStatus] = useState<MuseStatus>('stopped')
   const [interimCaption, setInterimCaption] = useState('')
   const [microphoneError, setMicrophoneError] = useState('')
+  const [catchUpLoading, setCatchUpLoading] = useState(false)
+  const [catchUpNotice, setCatchUpNotice] = useState('')
   const [question, setQuestion] = useState('')
   const [storageError, setStorageError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -95,6 +109,7 @@ function App() {
   const microphone = useRef<MuseSession | null>(null)
   const microphoneStart = useRef<Promise<MuseSession> | null>(null)
   const activeRef = useRef<LessonSession | null>(null)
+  const catchUpPending = useRef(false)
 
   useEffect(() => {
     return () => {
@@ -253,7 +268,11 @@ function App() {
 
   function beginClass() {
     void stopListening()
-    const lesson = createLesson(title)
+    const lesson = createLesson(
+      title,
+      transcriptionMode === 'sample' ? 'sample' : 'muse',
+    )
+    setCatchUpNotice('')
     activeRef.current = lesson
     setActive(lesson)
     setPlaying(true)
@@ -321,9 +340,81 @@ function App() {
   }
 
   async function catchUp() {
-    if (!active) return
-    const explanation = await mockReasoningService.catchUp(active)
-    setActive({ ...active, catchUps: [...active.catchUps, explanation] })
+    const lesson = activeRef.current ?? active
+    if (!lesson || catchUpPending.current) return
+    const isSample =
+      lesson.transcriptSource === 'sample' ||
+      (!lesson.transcriptSource &&
+        lesson.transcript.length > 0 &&
+        lesson.transcript.every((segment) => segment.id.startsWith('sample-')))
+    const selection = selectCatchUpContext(
+      lesson.transcript,
+      Math.max(
+        0,
+        Math.floor((Date.now() - new Date(lesson.date).getTime()) / 1000),
+      ),
+    )
+    const context = selection.segments
+    const contextNotice =
+      selection.emptyReason === 'no-finalized-captions'
+        ? 'No finalized captions yet. Try again after speech is finalized.'
+        : selection.emptyReason === 'no-recent-captions'
+          ? 'No finalized captions from the last five minutes. Try again after more speech.'
+          : selection.emptyReason === 'oversized-segment'
+            ? 'A caption segment is too large for a recap. Try again after another finalized segment.'
+            : !hasEnoughCatchUpContext(context)
+              ? 'A little more finalized speech is needed for a recap.'
+              : ''
+    if (!isSample && import.meta.env.DEV) {
+      console.info('catch_up_context', {
+        finalizedSegmentsAvailable: lesson.transcript.length,
+        segmentsSelected: context.length,
+        selectedWordCount: context.reduce(
+          (words, segment) => words + segment.text.trim().split(/\s+/).length,
+          0,
+        ),
+        selectedCharacterCount: context.reduce(
+          (characters, segment) => characters + segment.text.length,
+          0,
+        ),
+        selectedNonWhitespaceCharacterCount: catchUpCharacterCount(context),
+        requestSent: !contextNotice,
+      })
+    }
+    if (!isSample && contextNotice) {
+      setCatchUpNotice(contextNotice)
+      return
+    }
+    catchUpPending.current = true
+    setCatchUpLoading(true)
+    setCatchUpNotice('')
+    try {
+      const explanation = isSample
+        ? await mockReasoningService.catchUp(lesson)
+        : await museCatchUp(context)
+      const current = activeRef.current
+      if (!current || current.id !== lesson.id) return
+      const updated = {
+        ...current,
+        catchUps: [...current.catchUps, explanation],
+        updatedAt: new Date().toISOString(),
+      }
+      activeRef.current = updated
+      setActive(updated)
+      if (updated.status === 'saved') await persist(updated)
+    } catch (error) {
+      if (activeRef.current?.id === lesson.id)
+        setCatchUpNotice(
+          error instanceof CatchUpRequestError
+            ? error.message
+            : isSample
+              ? 'Could not generate a sample recap. Please try again.'
+              : 'Could not reach Muse Spark. Please try again.',
+        )
+    } finally {
+      catchUpPending.current = false
+      setCatchUpLoading(false)
+    }
   }
 
   async function sendQuestion(event: React.FormEvent) {
@@ -353,6 +444,19 @@ function App() {
     setActive(updated)
     await persist(updated)
   }
+
+  const isSampleSession = Boolean(
+    active &&
+    (active.transcriptSource === 'sample' ||
+      (!active.transcriptSource &&
+        active.transcript.length > 0 &&
+        active.transcript.every((segment) =>
+          segment.id.startsWith('sample-'),
+        ))),
+  )
+  const latestCatchUp = active?.catchUps
+    .filter((item) => item.source === (isSampleSession ? 'mock' : 'muse'))
+    .at(-1)
 
   return (
     <div className="app-shell">
@@ -779,16 +883,29 @@ function App() {
                     <button
                       className="button button-dark full"
                       onClick={catchUp}
+                      disabled={catchUpLoading}
                     >
-                      Catch me up <ArrowRight size={17} />
+                      {catchUpLoading ? 'Generating recap...' : 'Catch me up'}{' '}
+                      <ArrowRight size={17} />
                     </button>
                     <span className="mock-note">
-                      Mock recap · based on visible captions
+                      {isSampleSession
+                        ? 'Sample recap · based on simulated captions'
+                        : 'Muse Spark recap · based on finalized captions'}
                     </span>
-                    {active.catchUps.length > 0 && (
+                    {catchUpNotice && (
+                      <div className="catch-notice" role="status">
+                        {catchUpNotice}
+                      </div>
+                    )}
+                    {latestCatchUp && (
                       <div className="catch-result" role="status">
-                        <strong>Mock catch-up</strong>
-                        <p>{active.catchUps.at(-1)?.text}</p>
+                        <strong>
+                          {latestCatchUp.source === 'mock'
+                            ? 'Sample catch-up'
+                            : 'Muse Spark catch-up'}
+                        </strong>
+                        <p>{latestCatchUp.text}</p>
                       </div>
                     )}
                   </section>
@@ -930,7 +1047,9 @@ function App() {
                       </div>
                     ) : (
                       <p className="empty-text">
-                        No captions were recorded in this sample session.
+                        {isSampleSession
+                          ? 'No captions were recorded in this sample session.'
+                          : 'No finalized captions were recorded in this session.'}
                       </p>
                     )}
                   </section>
@@ -966,26 +1085,28 @@ function App() {
                   </section>
                 </div>
                 <aside className="study-side">
-                  <section className="study-card concepts-card">
-                    <div className="study-card-heading">
-                      <div className="card-icon coral">
-                        <GraduationCap size={21} />
-                      </div>
-                      <div>
-                        <h2>Key concepts</h2>
-                        <p>Sample topics from this lesson</p>
-                      </div>
-                    </div>
-                    {active.concepts.map((concept) => (
-                      <div className="concept" key={concept.id}>
-                        <span className="concept-dot" />
+                  {isSampleSession && (
+                    <section className="study-card concepts-card">
+                      <div className="study-card-heading">
+                        <div className="card-icon coral">
+                          <GraduationCap size={21} />
+                        </div>
                         <div>
-                          <strong>{concept.title}</strong>
-                          <p>{concept.description}</p>
+                          <h2>Key concepts</h2>
+                          <p>Sample topics from this lesson</p>
                         </div>
                       </div>
-                    ))}
-                  </section>
+                      {active.concepts.map((concept) => (
+                        <div className="concept" key={concept.id}>
+                          <span className="concept-dot" />
+                          <div>
+                            <strong>{concept.title}</strong>
+                            <p>{concept.description}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                  )}
                   <section className="study-card ask-card">
                     <div className="study-card-heading">
                       <div className="card-icon teal">

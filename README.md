@@ -14,11 +14,11 @@ Use `npm run build` and `npm run lint` to check the project. On Windows PowerShe
 ## Try the foundation
 
 1. On Home, name a class and choose **Sample class** or **Microphone**.
-2. Sample class uses simulated captions. Microphone streams audio to Meta Muse Voice Transcribe through the local ClassBridge server. Pause or bookmark captions; **Catch me up** remains a mock recap.
+2. Sample class uses simulated captions and a labeled mock recap. Microphone streams audio to Meta Muse Voice Transcribe through the local ClassBridge server. Pause or bookmark captions; **Catch me up** sends recent finalized captions to Muse Spark 1.3 through that server.
 3. Select **Save & finish**. The lesson is stored in this browser's IndexedDB.
 4. Open **My sessions** or the saved study view. Review the transcript, add notes, and try the clearly labeled **mock AI** study helper.
 
-Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. Catch-up and study responses remain mock features.
+Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. Study responses remain a labeled mock feature.
 
 ## Muse Voice microphone setup
 
@@ -41,6 +41,8 @@ The existing PowerShell method also remains valid: set `$env:MODEL_API_KEY` in t
 If the backend reports a Meta connection timeout before `meta_socket_open`, run `npm.cmd run diagnose:network`. This credential-free check reports whether DNS resolution, direct TCP port 443, and TLS negotiation to `api.meta.ai` succeed. It reports only proxy-environment presence and sanitized error codes; it does not read the API key. A TCP failure means the Meta handshake and key have not been tested yet.
 
 The frontend's `/api/transcription` WebSocket is proxied by Vite to the backend on `127.0.0.1:8787`. The browser sends raw 24 kHz mono signed 16-bit PCM frames to that local endpoint. The backend opens Meta's realtime WebSocket, puts the key in its first handshake frame, streams the PCM frames, and returns partial and completed transcript turns. Meta may process the streamed audio according to your Meta account settings. Microphone capture requires HTTPS or localhost. For testing from another device, configure HTTPS and set `CLASSBRIDGE_ALLOWED_ORIGIN` to that exact frontend origin before starting the backend. The server is intended for local development and has no user authentication.
+
+For microphone classes, `/api/catch-up` accepts a bounded selection of finalized captions from approximately the last five minutes. The backend calls Meta Muse Spark 1.3 with the server-side key and returns a short recap. The browser does not send the class title as lesson evidence. Empty or very short caption context is handled locally without a model request. Recaps appear in the live class and are saved with the session when the class is finished. A live microphone-to-Muse Spark recap was manually verified; saving and reopening that recap still requires a browser check.
 
 The realtime path was manually verified with a laptop microphone on a working mobile hotspot. Live captions appeared, multiple finalized segments were saved, and the saved session reopened with its transcript.
 

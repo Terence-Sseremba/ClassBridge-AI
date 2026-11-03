@@ -847,6 +847,12 @@ h3 {
   border-radius: 10px;
   padding: 14px;
 }
+.catch-notice {
+  margin-top: 14px;
+  color: #8a4e35;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .catch-result strong {
   font-size: 12px;
   color: #286958;
