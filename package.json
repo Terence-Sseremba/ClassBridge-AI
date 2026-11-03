@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "dev:server": "node --env-file-if-exists=.env server/index.mjs",
+    "diagnose:network": "node server/diagnose-network.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -16,7 +18,8 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^4.1.0"
+    "tailwindcss": "^4.1.0",
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

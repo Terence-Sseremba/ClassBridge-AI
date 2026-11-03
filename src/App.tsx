@@ -14,6 +14,7 @@ import {
   Home,
   Menu,
   MessageCircle,
+  Mic,
   Pause,
   Play,
   Plus,
@@ -25,6 +26,8 @@ import {
 import { lessonStorage } from './storage/lessons'
 import { mockReasoningService } from './services/reasoning'
 import { mockTranscriptionService } from './services/transcription'
+import { startMuseTranscription } from './services/museTranscription'
+import type { MuseSession, MuseStatus } from './services/museTranscription'
 import type { LessonSession, TranscriptSegment } from './types/lesson'
 import { formatTime } from './types/lesson'
 
@@ -78,10 +81,30 @@ function App() {
   const [active, setActive] = useState<LessonSession | null>(null)
   const [title, setTitle] = useState('Introduction to Photosynthesis')
   const [playing, setPlaying] = useState(true)
+  const [transcriptionMode, setTranscriptionMode] = useState<
+    'sample' | 'microphone'
+  >('sample')
+  const [listening, setListening] = useState(false)
+  const [museStatus, setMuseStatus] = useState<MuseStatus>('stopped')
+  const [interimCaption, setInterimCaption] = useState('')
+  const [microphoneError, setMicrophoneError] = useState('')
   const [question, setQuestion] = useState('')
   const [storageError, setStorageError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const captionEnd = useRef<HTMLDivElement>(null)
+  const microphone = useRef<MuseSession | null>(null)
+  const microphoneStart = useRef<Promise<MuseSession> | null>(null)
+  const activeRef = useRef<LessonSession | null>(null)
+
+  useEffect(() => {
+    return () => {
+      void microphone.current?.stop()
+    }
+  }, [])
+
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
 
   useEffect(() => {
     lessonStorage
@@ -95,7 +118,13 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (page !== 'live' || !active || !playing || active.status !== 'live')
+    if (
+      page !== 'live' ||
+      !active ||
+      !playing ||
+      transcriptionMode !== 'sample' ||
+      active.status !== 'live'
+    )
       return
     const timer = window.setInterval(() => {
       setActive((current) => {
@@ -115,14 +144,102 @@ function App() {
       })
     }, 3600)
     return () => window.clearInterval(timer)
-  }, [page, active, playing])
+  }, [page, active, playing, transcriptionMode])
 
   useEffect(() => {
     captionEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [active?.transcript.length])
+  }, [active?.transcript.length, interimCaption])
+
+  async function startListening() {
+    setMicrophoneError('')
+    setInterimCaption('')
+    try {
+      const pending = startMuseTranscription(
+        ({ text, final }) => {
+          if (!final) {
+            setInterimCaption(text)
+            return
+          }
+          setInterimCaption('')
+          const current = activeRef.current
+          if (!current || current.status !== 'live') return
+          const next = {
+            ...current,
+            transcript: [
+              ...current.transcript,
+              {
+                id: crypto.randomUUID(),
+                atSeconds: Math.max(
+                  0,
+                  Math.floor(
+                    (Date.now() - new Date(current.date).getTime()) / 1000,
+                  ),
+                ),
+                speaker: 'Speaker',
+                text,
+              },
+            ],
+            updatedAt: new Date().toISOString(),
+          }
+          activeRef.current = next
+          setActive(next)
+        },
+        (status) => {
+          setMuseStatus(status)
+          setListening(status === 'listening')
+        },
+        setMicrophoneError,
+      )
+      microphoneStart.current = pending
+      microphone.current = await pending
+      microphoneStart.current = null
+    } catch (error) {
+      microphoneStart.current = null
+      setMicrophoneError(
+        error instanceof Error
+          ? error.message
+          : 'Could not start Muse transcription.',
+      )
+      setListening(false)
+      setMuseStatus('stopped')
+    }
+  }
+
+  async function stopListening(): Promise<boolean> {
+    const pending = microphoneStart.current
+    const current = pending
+      ? await pending.catch(() => null)
+      : microphone.current
+    microphoneStart.current = null
+    microphone.current = null
+    if (current) {
+      try {
+        await current.stop()
+      } catch (error) {
+        setMicrophoneError(
+          error instanceof Error
+            ? error.message
+            : 'Could not finish transcription.',
+        )
+        setListening(false)
+        setInterimCaption('')
+        return false
+      }
+    }
+    setListening(false)
+    setInterimCaption('')
+    return true
+  }
 
   function navigate(next: Page) {
     setMenuOpen(false)
+    if (
+      page === 'live' &&
+      next !== 'live' &&
+      transcriptionMode === 'microphone'
+    ) {
+      void stopListening()
+    }
     if (next === 'live' && (!active || active.status !== 'live')) {
       setPage('home')
       window.setTimeout(
@@ -135,9 +252,13 @@ function App() {
   }
 
   function beginClass() {
-    setActive(createLesson(title))
+    void stopListening()
+    const lesson = createLesson(title)
+    activeRef.current = lesson
+    setActive(lesson)
     setPlaying(true)
     setPage('live')
+    if (transcriptionMode === 'microphone') void startListening()
   }
 
   async function persist(lesson: LessonSession): Promise<boolean> {
@@ -156,12 +277,14 @@ function App() {
 
   async function saveClass() {
     if (!active) return
+    if (transcriptionMode === 'microphone' && !(await stopListening())) return
     const saved = {
-      ...active,
+      ...(activeRef.current ?? active),
       status: 'saved' as const,
       updatedAt: new Date().toISOString(),
     }
     if (await persist(saved)) {
+      activeRef.current = saved
       setActive(saved)
       setPlaying(false)
       setPage('study')
@@ -371,10 +494,38 @@ function App() {
               <div className="home-grid">
                 <section className="start-card" id="start-class">
                   <div className="card-icon teal">
-                    <AudioLines size={23} />
+                    {transcriptionMode === 'sample' ? (
+                      <AudioLines size={23} />
+                    ) : (
+                      <Mic size={23} />
+                    )}
                   </div>
                   <h3>Start a live class</h3>
-                  <p>Watch sample captions appear and try the catch-up tool.</p>
+                  <p>
+                    Follow sample captions or transcribe speech from your
+                    microphone.
+                  </p>
+                  <fieldset className="mode-choice">
+                    <legend>Caption source</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        name="caption-source"
+                        checked={transcriptionMode === 'sample'}
+                        onChange={() => setTranscriptionMode('sample')}
+                      />{' '}
+                      Sample class
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="caption-source"
+                        checked={transcriptionMode === 'microphone'}
+                        onChange={() => setTranscriptionMode('microphone')}
+                      />{' '}
+                      Microphone
+                    </label>
+                  </fieldset>
                   <label htmlFor="class-title">Class title</label>
                   <div className="start-form">
                     <input
@@ -388,8 +539,10 @@ function App() {
                     </button>
                   </div>
                   <span className="fine-print">
-                    <CircleHelp size={14} /> This is a simulated class for
-                    Milestone 01.
+                    <CircleHelp size={14} />{' '}
+                    {transcriptionMode === 'sample'
+                      ? 'Sample class uses simulated captions.'
+                      : 'Muse Voice captions require microphone permission and the local ClassBridge server.'}
                   </span>
                 </section>
                 <section className="sessions-card">
@@ -467,8 +620,10 @@ function App() {
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
-                    <span className="separator">·</span> Simulated classroom
-                    session
+                    <span className="separator">·</span>{' '}
+                    {transcriptionMode === 'sample'
+                      ? 'Simulated classroom session'
+                      : 'Microphone session'}
                   </p>
                 </div>
                 <button className="button button-outline" onClick={saveClass}>
@@ -480,26 +635,57 @@ function App() {
                   <div className="card-top">
                     <div>
                       <span className="live-indicator">
-                        <span /> SIMULATED LIVE
+                        <span />{' '}
+                        {transcriptionMode === 'sample'
+                          ? 'SIMULATED LIVE'
+                          : museStatus === 'listening'
+                            ? 'MUSE VOICE LIVE'
+                            : museStatus === 'connecting'
+                              ? 'CONNECTING TO MUSE'
+                              : museStatus === 'finishing'
+                                ? 'FINISHING TRANSCRIPT'
+                                : 'MICROPHONE PAUSED'}
                       </span>
                       <h2>Live captions</h2>
                     </div>
                     <button
                       className="icon-button playback"
-                      onClick={() => setPlaying(!playing)}
+                      onClick={() => {
+                        if (transcriptionMode === 'sample') setPlaying(!playing)
+                        else if (listening) void stopListening()
+                        else void startListening()
+                      }}
+                      disabled={
+                        museStatus === 'connecting' ||
+                        museStatus === 'finishing'
+                      }
                       aria-label={
-                        playing
-                          ? 'Pause simulated captions'
-                          : 'Resume simulated captions'
+                        transcriptionMode === 'microphone'
+                          ? listening
+                            ? 'Pause microphone transcription'
+                            : 'Resume microphone transcription'
+                          : playing
+                            ? 'Pause simulated captions'
+                            : 'Resume simulated captions'
                       }
                     >
-                      {playing ? <Pause size={19} /> : <Play size={19} />}
+                      {(
+                        transcriptionMode === 'microphone' ? listening : playing
+                      ) ? (
+                        <Pause size={19} />
+                      ) : (
+                        <Play size={19} />
+                      )}
                     </button>
                   </div>
                   <div
                     className="caption-scroll"
                     role="log"
-                    aria-label="Simulated live captions"
+                    aria-label={
+                      transcriptionMode === 'sample'
+                        ? 'Simulated live captions'
+                        : 'Microphone live captions'
+                    }
                     aria-live="polite"
                   >
                     {active.transcript.length ? (
@@ -539,20 +725,46 @@ function App() {
                     ) : (
                       <div className="waiting">
                         <AudioLines size={34} />
-                        <strong>Captions are starting...</strong>
+                        <strong>
+                          {transcriptionMode === 'sample'
+                            ? 'Captions are starting...'
+                            : listening
+                              ? 'Listening for speech...'
+                              : museStatus === 'connecting'
+                                ? 'Connecting to Muse Voice...'
+                                : 'Microphone is paused'}
+                        </strong>
                         <span>
-                          Sample classroom dialogue will appear in a moment.
+                          {transcriptionMode === 'sample'
+                            ? 'Sample classroom dialogue will appear in a moment.'
+                            : 'Recognized speech will appear here.'}
                         </span>
                       </div>
                     )}
+                    {interimCaption && transcriptionMode === 'microphone' && (
+                      <p className="interim-caption">{interimCaption}</p>
+                    )}
                     <div ref={captionEnd} />
                   </div>
+                  {microphoneError && transcriptionMode === 'microphone' && (
+                    <div className="microphone-error" role="alert">
+                      {microphoneError}
+                    </div>
+                  )}
                   <div className="caption-footer">
                     <span>
                       <span className="status-dot" />{' '}
-                      {playing
-                        ? 'Sample playback running'
-                        : 'Sample playback paused'}
+                      {transcriptionMode === 'sample'
+                        ? playing
+                          ? 'Sample playback running'
+                          : 'Sample playback paused'
+                        : museStatus === 'listening'
+                          ? 'Muse Voice listening'
+                          : museStatus === 'connecting'
+                            ? 'Connecting to Muse Voice'
+                            : museStatus === 'finishing'
+                              ? 'Finalizing captions'
+                              : 'Microphone paused'}
                     </span>
                     <span>{active.transcript.length} caption segments</span>
                   </div>
@@ -563,7 +775,7 @@ function App() {
                       <Sparkles size={22} />
                     </div>
                     <h2>Missed a moment?</h2>
-                    <p>Get a quick recap of the most recent sample captions.</p>
+                    <p>Get a quick recap of the most recent captions.</p>
                     <button
                       className="button button-dark full"
                       onClick={catchUp}
@@ -571,7 +783,7 @@ function App() {
                       Catch me up <ArrowRight size={17} />
                     </button>
                     <span className="mock-note">
-                      Mock recap · based on visible sample captions
+                      Mock recap · based on visible captions
                     </span>
                     {active.catchUps.length > 0 && (
                       <div className="catch-result" role="status">
