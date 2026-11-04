@@ -178,7 +178,12 @@ function App() {
   }, [deleteTarget])
 
   useEffect(() => {
-    captionEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    captionEnd.current?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth',
+      block: 'nearest',
+    })
   }, [active?.transcript.length, interimCaption])
 
   async function startListening() {
@@ -672,6 +677,7 @@ function App() {
   return (
     <div className="app-shell refreshed-workspace">
       <aside
+        id="workspace-navigation"
         className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Main navigation"
       >
@@ -719,6 +725,8 @@ function App() {
           <button
             className="menu-button icon-button"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-controls="workspace-navigation"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
           >
             {menuOpen ? <X size={21} /> : <Menu size={21} />}

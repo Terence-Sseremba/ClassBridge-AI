@@ -119,15 +119,15 @@ h3 {
 }
 .brand small {
   display: block;
-  font-size: 8px;
-  letter-spacing: 0.15em;
-  color: #92a19d;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #47536b;
   font-weight: 800;
   margin-top: 6px;
 }
 .side-label {
-  color: #9ca9a7;
-  font-size: 10px;
+  color: #47536b;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;
   margin: 57px 14px 17px;
@@ -857,6 +857,16 @@ h3 {
 .refreshed-workspace .mobile-nav {
   border-color: var(--cb-border);
 }
+.refreshed-workspace .menu-button {
+  width: 44px;
+  height: 44px;
+  color: var(--cb-ink);
+}
+.refreshed-workspace .mobile-nav button {
+  min-height: 48px;
+  color: var(--cb-muted);
+  font-size: 12px;
+}
 .refreshed-workspace .mobile-nav button.active {
   color: var(--cb-blue);
 }
@@ -1452,5 +1462,10 @@ h3 {
   }
   .study-card {
     padding: 18px;
+  }
+}
+@media (max-width: 480px) {
+  .workspace-label {
+    display: none;
   }
 }
