@@ -2,6 +2,7 @@ import type {
   CatchUpExplanation,
   LessonSession,
   StudyMessage,
+  StudyNotes,
   TranscriptSegment,
 } from '../types/lesson'
 
@@ -12,6 +13,131 @@ type EmptyContextReason =
   'no-finalized-captions' | 'no-recent-captions' | 'oversized-segment'
 
 export class CatchUpRequestError extends Error {}
+export class StudyNotesRequestError extends Error {}
+
+export function selectStudyNotesContext(transcript: TranscriptSegment[]): {
+  segments: TranscriptSegment[]
+  coversFullTranscript: boolean
+  emptyReason?: 'no-finalized-captions' | 'oversized-segment'
+} {
+  const finalized = transcript.filter((segment) => segment.text.trim())
+  if (!finalized.length)
+    return {
+      segments: [],
+      coversFullTranscript: true,
+      emptyReason: 'no-finalized-captions',
+    }
+
+  const selected: TranscriptSegment[] = []
+  let characters = 0
+  for (let index = finalized.length - 1; index >= 0; index--) {
+    const segment = finalized[index]
+    if (segment.text.length > MAX_CONTEXT_CHARACTERS)
+      return selected.length
+        ? { segments: selected, coversFullTranscript: false }
+        : {
+            segments: [],
+            coversFullTranscript: false,
+            emptyReason: 'oversized-segment',
+          }
+    if (
+      selected.length >= 80 ||
+      characters + segment.text.length > MAX_CONTEXT_CHARACTERS
+    )
+      break
+    selected.unshift(segment)
+    characters += segment.text.length
+  }
+  return {
+    segments: selected,
+    coversFullTranscript: selected.length === finalized.length,
+  }
+}
+
+export function hasEnoughStudyNotesContext(
+  segments: TranscriptSegment[],
+): boolean {
+  return catchUpCharacterCount(segments) >= 100
+}
+
+type StudyNotesContent = Pick<StudyNotes, 'overview' | 'concepts' | 'takeaways'>
+
+export async function museStudyNotes(
+  segments: TranscriptSegment[],
+): Promise<StudyNotesContent> {
+  let response: Response
+  try {
+    response = await fetch('/api/study-notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ segments }),
+    })
+  } catch {
+    throw new StudyNotesRequestError(
+      'Could not reach Muse Spark. Please try again.',
+    )
+  }
+  if (!response.ok) {
+    const errorBody: unknown = await response.json().catch(() => null)
+    const code =
+      errorBody && typeof errorBody === 'object' && 'code' in errorBody
+        ? errorBody.code
+        : null
+    if (code === 'NO_FINALIZED_CAPTIONS' || code === 'INSUFFICIENT_CONTEXT')
+      throw new StudyNotesRequestError(
+        'More finalized captions are needed for study notes.',
+      )
+    if (code === 'OVERSIZED_SEGMENT' || code === 'REQUEST_TOO_LARGE')
+      throw new StudyNotesRequestError(
+        'A caption is too large for study notes.',
+      )
+    throw new StudyNotesRequestError(
+      'Muse Spark could not generate study notes. Please try again.',
+    )
+  }
+  const result: unknown = await response.json().catch(() => null)
+  if (
+    !result ||
+    typeof result !== 'object' ||
+    !('overview' in result) ||
+    typeof result.overview !== 'string' ||
+    !('concepts' in result) ||
+    !Array.isArray(result.concepts) ||
+    !('takeaways' in result) ||
+    !Array.isArray(result.takeaways)
+  )
+    throw new StudyNotesRequestError(
+      'Muse Spark returned unusable study notes. Please try again.',
+    )
+  return result as StudyNotesContent
+}
+
+export function sampleStudyNotes(
+  lesson: LessonSession,
+  segments: TranscriptSegment[],
+): StudyNotesContent {
+  const text = segments
+    .map((segment) => segment.text)
+    .join(' ')
+    .toLowerCase()
+  return {
+    overview: segments
+      .slice(0, 2)
+      .map((segment) => segment.text)
+      .join(' '),
+    concepts: lesson.concepts
+      .filter((concept) => text.includes(concept.title.toLowerCase()))
+      .slice(0, 5)
+      .map((concept) => ({
+        title: concept.title,
+        explanation:
+          segments.find((segment) =>
+            segment.text.toLowerCase().includes(concept.title.toLowerCase()),
+          )?.text ?? '',
+      })),
+    takeaways: segments.slice(-3).map((segment) => segment.text),
+  }
+}
 
 export function selectCatchUpContext(
   transcript: TranscriptSegment[],

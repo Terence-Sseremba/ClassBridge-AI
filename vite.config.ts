@@ -13,6 +13,9 @@ export default defineConfig({
       '/api/catch-up': {
         target: 'http://127.0.0.1:8787',
       },
+      '/api/study-notes': {
+        target: 'http://127.0.0.1:8787',
+      },
     },
   },
 })

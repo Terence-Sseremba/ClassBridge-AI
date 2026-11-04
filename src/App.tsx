@@ -21,19 +21,27 @@ import {
   Plus,
   Send,
   Sparkles,
+  Trash2,
   Volume2,
   X,
 } from 'lucide-react'
 import { lessonStorage } from './storage/lessons'
+import { finishClassSession } from './services/sessionFlow'
+import { deleteSavedSession } from './services/sessionDeletion'
+import { generateAndSaveStudyNotes } from './services/studyNotesFlow'
 import {
   CatchUpRequestError,
   catchUpCharacterCount,
   hasEnoughCatchUpContext,
   mockReasoningService,
   museCatchUp,
+  museStudyNotes,
+  hasEnoughStudyNotesContext,
+  sampleStudyNotes,
   selectCatchUpContext,
+  selectStudyNotesContext,
+  StudyNotesRequestError,
 } from './services/reasoning'
-import { mockTranscriptionService } from './services/transcription'
 import { startMuseTranscription } from './services/museTranscription'
 import type { MuseSession, MuseStatus } from './services/museTranscription'
 import type { LessonSession, TranscriptSegment } from './types/lesson'
@@ -55,31 +63,17 @@ function shortDate(date: string) {
   }).format(new Date(date))
 }
 
-function createLesson(title: string, source: 'sample' | 'muse'): LessonSession {
+function createLesson(title: string): LessonSession {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
-    transcriptSource: source,
+    transcriptSource: 'muse',
     title: title.trim() || 'Untitled class',
     date: now,
     updatedAt: now,
     status: 'live',
     transcript: [],
-    concepts:
-      source === 'sample'
-        ? [
-            {
-              id: 'photosynthesis',
-              title: 'Photosynthesis',
-              description: 'How plants turn light into stored chemical energy.',
-            },
-            {
-              id: 'calvin-cycle',
-              title: 'Calvin cycle',
-              description: 'A stage that uses carbon dioxide to build sugars.',
-            },
-          ]
-        : [],
+    concepts: [],
     bookmarks: [],
     catchUps: [],
     studyMessages: [],
@@ -91,11 +85,7 @@ function App() {
   const [page, setPage] = useState<Page>('home')
   const [lessons, setLessons] = useState<LessonSession[]>([])
   const [active, setActive] = useState<LessonSession | null>(null)
-  const [title, setTitle] = useState('Introduction to Photosynthesis')
-  const [playing, setPlaying] = useState(true)
-  const [transcriptionMode, setTranscriptionMode] = useState<
-    'sample' | 'microphone'
-  >('sample')
+  const [title, setTitle] = useState('')
   const [listening, setListening] = useState(false)
   const [museStatus, setMuseStatus] = useState<MuseStatus>('stopped')
   const [interimCaption, setInterimCaption] = useState('')
@@ -104,12 +94,30 @@ function App() {
   const [catchUpNotice, setCatchUpNotice] = useState('')
   const [question, setQuestion] = useState('')
   const [storageError, setStorageError] = useState('')
+  const [studyNotesLoading, setStudyNotesLoading] = useState(false)
+  const [studyNotesNotice, setStudyNotesNotice] = useState('')
+  const [studyNotesCanRetry, setStudyNotesCanRetry] = useState(false)
+  const [savingClass, setSavingClass] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    title: string
+  } | null>(null)
+  const [deletingSession, setDeletingSession] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const captionEnd = useRef<HTMLDivElement>(null)
+  const deleteDialog = useRef<HTMLDialogElement>(null)
   const microphone = useRef<MuseSession | null>(null)
   const microphoneStart = useRef<Promise<MuseSession> | null>(null)
+  const microphoneStop = useRef<Promise<boolean> | null>(null)
   const activeRef = useRef<LessonSession | null>(null)
   const catchUpPending = useRef(false)
+  const studyNotesPending = useRef(new Set<string>())
+  const savePending = useRef(false)
+  const beginPending = useRef(false)
+  const persistQueue = useRef<Promise<void>>(Promise.resolve())
+  const deletionPending = useRef(new Set<string>())
+  const deletedSessionIds = useRef(new Set<string>())
 
   useEffect(() => {
     return () => {
@@ -124,7 +132,11 @@ function App() {
   useEffect(() => {
     lessonStorage
       .list()
-      .then(setLessons)
+      .then((items) =>
+        setLessons(
+          items.filter((item) => !deletedSessionIds.current.has(item.id)),
+        ),
+      )
       .catch(() =>
         setStorageError(
           'Local storage is unavailable. Sessions cannot be saved in this browser.',
@@ -133,33 +145,9 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (
-      page !== 'live' ||
-      !active ||
-      !playing ||
-      transcriptionMode !== 'sample' ||
-      active.status !== 'live'
-    )
-      return
-    const timer = window.setInterval(() => {
-      setActive((current) => {
-        if (!current || current.status !== 'live') return current
-        const next = mockTranscriptionService.nextSegment(
-          current.transcript.length,
-        )
-        if (!next) {
-          window.clearInterval(timer)
-          return current
-        }
-        return {
-          ...current,
-          transcript: [...current.transcript, next],
-          updatedAt: new Date().toISOString(),
-        }
-      })
-    }, 3600)
-    return () => window.clearInterval(timer)
-  }, [page, active, playing, transcriptionMode])
+    if (deleteTarget && !deleteDialog.current?.open)
+      deleteDialog.current?.showModal()
+  }, [deleteTarget])
 
   useEffect(() => {
     captionEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -168,16 +156,18 @@ function App() {
   async function startListening() {
     setMicrophoneError('')
     setInterimCaption('')
+    const lessonId = activeRef.current?.id
     try {
       const pending = startMuseTranscription(
         ({ text, final }) => {
+          const current = activeRef.current
+          if (!current || current.id !== lessonId || current.status !== 'live')
+            return
           if (!final) {
             setInterimCaption(text)
             return
           }
           setInterimCaption('')
-          const current = activeRef.current
-          if (!current || current.status !== 'live') return
           const next = {
             ...current,
             transcript: [
@@ -200,59 +190,70 @@ function App() {
           setActive(next)
         },
         (status) => {
+          if (activeRef.current?.id !== lessonId) return
           setMuseStatus(status)
           setListening(status === 'listening')
         },
-        setMicrophoneError,
+        (message) => {
+          if (activeRef.current?.id === lessonId) setMicrophoneError(message)
+        },
       )
       microphoneStart.current = pending
       microphone.current = await pending
       microphoneStart.current = null
     } catch (error) {
       microphoneStart.current = null
-      setMicrophoneError(
-        error instanceof Error
-          ? error.message
-          : 'Could not start Muse transcription.',
-      )
-      setListening(false)
-      setMuseStatus('stopped')
+      if (activeRef.current?.id === lessonId) {
+        setMicrophoneError(
+          error instanceof Error
+            ? error.message
+            : 'Could not start Muse transcription.',
+        )
+        setListening(false)
+        setMuseStatus('stopped')
+      }
     }
   }
 
   async function stopListening(): Promise<boolean> {
-    const pending = microphoneStart.current
-    const current = pending
-      ? await pending.catch(() => null)
-      : microphone.current
-    microphoneStart.current = null
-    microphone.current = null
-    if (current) {
-      try {
-        await current.stop()
-      } catch (error) {
-        setMicrophoneError(
-          error instanceof Error
-            ? error.message
-            : 'Could not finish transcription.',
-        )
-        setListening(false)
-        setInterimCaption('')
-        return false
+    if (microphoneStop.current) return microphoneStop.current
+    const finishing = (async () => {
+      const pending = microphoneStart.current
+      const current = pending
+        ? await pending.catch(() => null)
+        : microphone.current
+      microphoneStart.current = null
+      microphone.current = null
+      if (current) {
+        try {
+          await current.stop()
+        } catch (error) {
+          setMicrophoneError(
+            error instanceof Error
+              ? error.message
+              : 'Could not finish transcription.',
+          )
+          setListening(false)
+          setInterimCaption('')
+          return false
+        }
       }
+      setListening(false)
+      setInterimCaption('')
+      return true
+    })()
+    microphoneStop.current = finishing
+    try {
+      return await finishing
+    } finally {
+      if (microphoneStop.current === finishing) microphoneStop.current = null
     }
-    setListening(false)
-    setInterimCaption('')
-    return true
   }
 
   function navigate(next: Page) {
+    if (savePending.current) return
     setMenuOpen(false)
-    if (
-      page === 'live' &&
-      next !== 'live' &&
-      transcriptionMode === 'microphone'
-    ) {
+    if (page === 'live' && next !== 'live') {
       void stopListening()
     }
     if (next === 'live' && (!active || active.status !== 'live')) {
@@ -266,24 +267,45 @@ function App() {
     setPage(next)
   }
 
-  function beginClass() {
-    void stopListening()
-    const lesson = createLesson(
-      title,
-      transcriptionMode === 'sample' ? 'sample' : 'muse',
+  async function beginClass() {
+    if (beginPending.current) return
+    beginPending.current = true
+    try {
+      if (!(await stopListening())) return
+      const lesson = createLesson(title)
+      setCatchUpNotice('')
+      activeRef.current = lesson
+      setActive(lesson)
+      setPage('live')
+      await startListening()
+    } finally {
+      beginPending.current = false
+    }
+  }
+
+  function serializeStorage<T>(action: () => Promise<T>): Promise<T> {
+    const result = persistQueue.current.catch(() => undefined).then(action)
+    persistQueue.current = result.then(
+      () => undefined,
+      () => undefined,
     )
-    setCatchUpNotice('')
-    activeRef.current = lesson
-    setActive(lesson)
-    setPlaying(true)
-    setPage('live')
-    if (transcriptionMode === 'microphone') void startListening()
+    return result
+  }
+
+  async function refreshLessons(): Promise<void> {
+    const items = await lessonStorage.list()
+    setLessons(items.filter((item) => !deletedSessionIds.current.has(item.id)))
   }
 
   async function persist(lesson: LessonSession): Promise<boolean> {
     try {
-      await lessonStorage.save(lesson)
-      setLessons(await lessonStorage.list())
+      const saved = await serializeStorage(async () => {
+        if (deletedSessionIds.current.has(lesson.id)) return false
+        await lessonStorage.save(lesson)
+        return true
+      })
+      if (!saved) return false
+      await refreshLessons()
       setStorageError('')
       return true
     } catch {
@@ -295,26 +317,40 @@ function App() {
   }
 
   async function saveClass() {
-    if (!active) return
-    if (transcriptionMode === 'microphone' && !(await stopListening())) return
-    const saved = {
-      ...(activeRef.current ?? active),
-      status: 'saved' as const,
-      updatedAt: new Date().toISOString(),
-    }
-    if (await persist(saved)) {
-      activeRef.current = saved
-      setActive(saved)
-      setPlaying(false)
-      setPage('study')
+    if (!active || savePending.current) return
+    savePending.current = true
+    setSavingClass(true)
+    try {
+      await finishClassSession({
+        stopListening,
+        getCurrent: () => activeRef.current,
+        setCurrent: (lesson) => {
+          activeRef.current = lesson
+          setActive(lesson)
+        },
+        persist,
+        openSaved: (lesson) => {
+          setActive(lesson)
+          setPage('study')
+        },
+        generateStudyNotes: (lesson) => void generateStudyNotes(lesson),
+      })
+    } finally {
+      savePending.current = false
+      setSavingClass(false)
     }
   }
 
   async function openLesson(id: string) {
     try {
+      await persistQueue.current.catch(() => undefined)
       const lesson = await lessonStorage.get(id)
-      if (lesson) {
+      if (lesson && !deletedSessionIds.current.has(id)) {
+        activeRef.current = lesson
         setActive(lesson)
+        setStudyNotesLoading(studyNotesPending.current.has(lesson.id))
+        setStudyNotesNotice('')
+        setStudyNotesCanRetry(false)
         setPage('study')
         setStorageError('')
       }
@@ -323,30 +359,89 @@ function App() {
     }
   }
 
+  function requestDelete(lesson: LessonSession) {
+    if (deletionPending.current.has(lesson.id)) return
+    setDeleteError('')
+    setDeleteTarget({ id: lesson.id, title: lesson.title })
+  }
+
+  function cancelDelete() {
+    if (
+      deletingSession ||
+      (deleteTarget && deletionPending.current.has(deleteTarget.id))
+    )
+      return
+    setDeleteTarget(null)
+    setDeleteError('')
+  }
+
+  async function confirmDelete() {
+    const target = deleteTarget
+    if (!target || deletionPending.current.has(target.id)) return
+    setDeletingSession(true)
+    setDeleteError('')
+    try {
+      const result = await deleteSavedSession({
+        lessonId: target.id,
+        pending: deletionPending.current,
+        deleted: deletedSessionIds.current,
+        serialize: serializeStorage,
+        storage: lessonStorage,
+      })
+      if (result === 'missing') {
+        setDeleteError('This session is no longer in local storage.')
+        return
+      }
+      if (result !== 'deleted') return
+      setLessons((items) => items.filter((item) => item.id !== target.id))
+      if (activeRef.current?.id === target.id) {
+        activeRef.current = null
+        setActive(null)
+        setPage('sessions')
+      }
+      setDeleteTarget(null)
+      window.setTimeout(
+        () => document.getElementById('sessions-heading')?.focus(),
+        0,
+      )
+      try {
+        await refreshLessons()
+        setStorageError('')
+      } catch {
+        setStorageError(
+          'Session deleted, but the session list could not be refreshed.',
+        )
+      }
+    } catch {
+      setDeleteError('Could not delete this session. Please try again.')
+    } finally {
+      setDeletingSession(false)
+    }
+  }
+
   function bookmark(segment: TranscriptSegment) {
-    if (!active) return
-    const exists = active.bookmarks.some(
+    if (savePending.current) return
+    const current = activeRef.current ?? active
+    if (!current) return
+    const exists = current.bookmarks.some(
       (item) => item.segmentId === segment.id,
     )
-    setActive({
-      ...active,
+    const updated = {
+      ...current,
       bookmarks: exists
-        ? active.bookmarks.filter((item) => item.segmentId !== segment.id)
+        ? current.bookmarks.filter((item) => item.segmentId !== segment.id)
         : [
-            ...active.bookmarks,
+            ...current.bookmarks,
             { id: crypto.randomUUID(), segmentId: segment.id, note: '' },
           ],
-    })
+    }
+    activeRef.current = updated
+    setActive(updated)
   }
 
   async function catchUp() {
     const lesson = activeRef.current ?? active
     if (!lesson || catchUpPending.current) return
-    const isSample =
-      lesson.transcriptSource === 'sample' ||
-      (!lesson.transcriptSource &&
-        lesson.transcript.length > 0 &&
-        lesson.transcript.every((segment) => segment.id.startsWith('sample-')))
     const selection = selectCatchUpContext(
       lesson.transcript,
       Math.max(
@@ -365,7 +460,7 @@ function App() {
             : !hasEnoughCatchUpContext(context)
               ? 'A little more finalized speech is needed for a recap.'
               : ''
-    if (!isSample && import.meta.env.DEV) {
+    if (import.meta.env.DEV) {
       console.info('catch_up_context', {
         finalizedSegmentsAvailable: lesson.transcript.length,
         segmentsSelected: context.length,
@@ -381,7 +476,7 @@ function App() {
         requestSent: !contextNotice,
       })
     }
-    if (!isSample && contextNotice) {
+    if (contextNotice) {
       setCatchUpNotice(contextNotice)
       return
     }
@@ -389,9 +484,7 @@ function App() {
     setCatchUpLoading(true)
     setCatchUpNotice('')
     try {
-      const explanation = isSample
-        ? await mockReasoningService.catchUp(lesson)
-        : await museCatchUp(context)
+      const explanation = await museCatchUp(context)
       const current = activeRef.current
       if (!current || current.id !== lesson.id) return
       const updated = {
@@ -407,9 +500,7 @@ function App() {
         setCatchUpNotice(
           error instanceof CatchUpRequestError
             ? error.message
-            : isSample
-              ? 'Could not generate a sample recap. Please try again.'
-              : 'Could not reach Muse Spark. Please try again.',
+            : 'Could not reach Muse Spark. Please try again.',
         )
     } finally {
       catchUpPending.current = false
@@ -428,21 +519,108 @@ function App() {
       createdAt: new Date().toISOString(),
     }
     const reply = await mockReasoningService.answer(active, asked)
+    const current = activeRef.current
+    if (!current || current.id !== active.id) return
     const updated = {
-      ...active,
-      studyMessages: [...active.studyMessages, studentMessage, reply],
+      ...current,
+      studyMessages: [...current.studyMessages, studentMessage, reply],
       updatedAt: new Date().toISOString(),
     }
+    activeRef.current = updated
     setActive(updated)
     setQuestion('')
     await persist(updated)
   }
 
   async function updateNotes(notes: string) {
-    if (!active) return
-    const updated = { ...active, notes, updatedAt: new Date().toISOString() }
+    const current = activeRef.current
+    if (!active || !current || current.id !== active.id) return
+    const updated = { ...current, notes, updatedAt: new Date().toISOString() }
+    activeRef.current = updated
     setActive(updated)
     await persist(updated)
+  }
+
+  async function generateStudyNotes(lesson = activeRef.current ?? active) {
+    if (
+      !lesson ||
+      lesson.status !== 'saved' ||
+      lesson.studyNotes ||
+      studyNotesPending.current.has(lesson.id)
+    )
+      return
+    const isSample =
+      lesson.transcriptSource === 'sample' ||
+      (!lesson.transcriptSource &&
+        lesson.transcript.length > 0 &&
+        lesson.transcript.every((segment) => segment.id.startsWith('sample-')))
+    const selection = selectStudyNotesContext(lesson.transcript)
+    if (
+      selection.emptyReason ||
+      !hasEnoughStudyNotesContext(selection.segments)
+    ) {
+      setStudyNotesNotice(
+        selection.emptyReason === 'oversized-segment'
+          ? 'The latest caption is too large for study notes.'
+          : 'More finalized captions are needed for study notes.',
+      )
+      setStudyNotesCanRetry(false)
+      return
+    }
+    setStudyNotesLoading(true)
+    setStudyNotesNotice('')
+    setStudyNotesCanRetry(false)
+    try {
+      const result = await generateAndSaveStudyNotes({
+        lessonId: lesson.id,
+        pending: studyNotesPending.current,
+        serialize: serializeStorage,
+        storage: lessonStorage,
+        generate: async () => {
+          const content = isSample
+            ? sampleStudyNotes(lesson, selection.segments)
+            : await museStudyNotes(selection.segments)
+          return {
+            ...content,
+            createdAt: new Date().toISOString(),
+            source: isSample ? 'sample' : 'muse',
+            throughSegmentId: selection.segments.at(-1)?.id ?? '',
+            coversFullTranscript: selection.coversFullTranscript,
+          }
+        },
+      })
+      if (result.status === 'saved' || result.status === 'existing') {
+        if (activeRef.current?.id === lesson.id) {
+          const current = activeRef.current
+          const updated = {
+            ...current,
+            studyNotes: current.studyNotes ?? result.lesson.studyNotes,
+          }
+          activeRef.current = updated
+          setActive(updated)
+          setStorageError('')
+        }
+        try {
+          await refreshLessons()
+        } catch {
+          setStorageError('Could not refresh the saved sessions list.')
+        }
+      }
+    } catch (error) {
+      if (activeRef.current?.id === lesson.id) {
+        setStudyNotesNotice(
+          error instanceof StudyNotesRequestError
+            ? error.message
+            : 'Could not generate study notes. Please try again.',
+        )
+        setStudyNotesCanRetry(true)
+      }
+    } finally {
+      studyNotesPending.current.delete(lesson.id)
+      if (activeRef.current?.id === lesson.id) {
+        setStudyNotesLoading(false)
+      }
+    }
   }
 
   const isSampleSession = Boolean(
@@ -598,38 +776,10 @@ function App() {
               <div className="home-grid">
                 <section className="start-card" id="start-class">
                   <div className="card-icon teal">
-                    {transcriptionMode === 'sample' ? (
-                      <AudioLines size={23} />
-                    ) : (
-                      <Mic size={23} />
-                    )}
+                    <Mic size={23} />
                   </div>
                   <h3>Start a live class</h3>
-                  <p>
-                    Follow sample captions or transcribe speech from your
-                    microphone.
-                  </p>
-                  <fieldset className="mode-choice">
-                    <legend>Caption source</legend>
-                    <label>
-                      <input
-                        type="radio"
-                        name="caption-source"
-                        checked={transcriptionMode === 'sample'}
-                        onChange={() => setTranscriptionMode('sample')}
-                      />{' '}
-                      Sample class
-                    </label>
-                    <label>
-                      <input
-                        type="radio"
-                        name="caption-source"
-                        checked={transcriptionMode === 'microphone'}
-                        onChange={() => setTranscriptionMode('microphone')}
-                      />{' '}
-                      Microphone
-                    </label>
-                  </fieldset>
+                  <p>Follow your class with live microphone captions.</p>
                   <label htmlFor="class-title">Class title</label>
                   <div className="start-form">
                     <input
@@ -638,15 +788,16 @@ function App() {
                       onChange={(event) => setTitle(event.target.value)}
                       placeholder="e.g. Biology 101"
                     />
-                    <button className="button button-dark" onClick={beginClass}>
+                    <button
+                      className="button button-dark"
+                      onClick={() => void beginClass()}
+                    >
                       Start class <ArrowRight size={17} />
                     </button>
                   </div>
                   <span className="fine-print">
-                    <CircleHelp size={14} />{' '}
-                    {transcriptionMode === 'sample'
-                      ? 'Sample class uses simulated captions.'
-                      : 'Muse Voice captions require microphone permission and the local ClassBridge server.'}
+                    <CircleHelp size={14} /> Muse Voice captions require
+                    microphone permission and the local ClassBridge server.
                   </span>
                 </section>
                 <section className="sessions-card">
@@ -724,14 +875,16 @@ function App() {
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
-                    <span className="separator">·</span>{' '}
-                    {transcriptionMode === 'sample'
-                      ? 'Simulated classroom session'
-                      : 'Microphone session'}
+                    <span className="separator">·</span> Microphone session
                   </p>
                 </div>
-                <button className="button button-outline" onClick={saveClass}>
-                  <Check size={17} /> Save & finish
+                <button
+                  className="button button-outline"
+                  onClick={() => void saveClass()}
+                  disabled={savingClass}
+                >
+                  <Check size={17} />{' '}
+                  {savingClass ? 'Finalizing and saving...' : 'Save & finish'}
                 </button>
               </div>
               <div className="live-layout">
@@ -740,56 +893,40 @@ function App() {
                     <div>
                       <span className="live-indicator">
                         <span />{' '}
-                        {transcriptionMode === 'sample'
-                          ? 'SIMULATED LIVE'
-                          : museStatus === 'listening'
-                            ? 'MUSE VOICE LIVE'
-                            : museStatus === 'connecting'
-                              ? 'CONNECTING TO MUSE'
-                              : museStatus === 'finishing'
-                                ? 'FINISHING TRANSCRIPT'
-                                : 'MICROPHONE PAUSED'}
+                        {museStatus === 'listening'
+                          ? 'MUSE VOICE LIVE'
+                          : museStatus === 'connecting'
+                            ? 'CONNECTING TO MUSE'
+                            : museStatus === 'finishing'
+                              ? 'FINISHING TRANSCRIPT'
+                              : 'MICROPHONE PAUSED'}
                       </span>
                       <h2>Live captions</h2>
                     </div>
                     <button
                       className="icon-button playback"
                       onClick={() => {
-                        if (transcriptionMode === 'sample') setPlaying(!playing)
-                        else if (listening) void stopListening()
+                        if (listening) void stopListening()
                         else void startListening()
                       }}
                       disabled={
+                        savingClass ||
                         museStatus === 'connecting' ||
                         museStatus === 'finishing'
                       }
                       aria-label={
-                        transcriptionMode === 'microphone'
-                          ? listening
-                            ? 'Pause microphone transcription'
-                            : 'Resume microphone transcription'
-                          : playing
-                            ? 'Pause simulated captions'
-                            : 'Resume simulated captions'
+                        listening
+                          ? 'Pause microphone transcription'
+                          : 'Resume microphone transcription'
                       }
                     >
-                      {(
-                        transcriptionMode === 'microphone' ? listening : playing
-                      ) ? (
-                        <Pause size={19} />
-                      ) : (
-                        <Play size={19} />
-                      )}
+                      {listening ? <Pause size={19} /> : <Play size={19} />}
                     </button>
                   </div>
                   <div
                     className="caption-scroll"
                     role="log"
-                    aria-label={
-                      transcriptionMode === 'sample'
-                        ? 'Simulated live captions'
-                        : 'Microphone live captions'
-                    }
+                    aria-label="Microphone live captions"
                     aria-live="polite"
                   >
                     {active.transcript.length ? (
@@ -804,6 +941,7 @@ function App() {
                           </div>
                           <button
                             className={`bookmark-button ${active.bookmarks.some((item) => item.segmentId === segment.id) ? 'bookmarked' : ''}`}
+                            disabled={savingClass}
                             aria-label={
                               active.bookmarks.some(
                                 (item) => item.segmentId === segment.id,
@@ -830,27 +968,21 @@ function App() {
                       <div className="waiting">
                         <AudioLines size={34} />
                         <strong>
-                          {transcriptionMode === 'sample'
-                            ? 'Captions are starting...'
-                            : listening
-                              ? 'Listening for speech...'
-                              : museStatus === 'connecting'
-                                ? 'Connecting to Muse Voice...'
-                                : 'Microphone is paused'}
+                          {listening
+                            ? 'Listening for speech...'
+                            : museStatus === 'connecting'
+                              ? 'Connecting to Muse Voice...'
+                              : 'Microphone is paused'}
                         </strong>
-                        <span>
-                          {transcriptionMode === 'sample'
-                            ? 'Sample classroom dialogue will appear in a moment.'
-                            : 'Recognized speech will appear here.'}
-                        </span>
+                        <span>Recognized speech will appear here.</span>
                       </div>
                     )}
-                    {interimCaption && transcriptionMode === 'microphone' && (
+                    {interimCaption && (
                       <p className="interim-caption">{interimCaption}</p>
                     )}
                     <div ref={captionEnd} />
                   </div>
-                  {microphoneError && transcriptionMode === 'microphone' && (
+                  {microphoneError && (
                     <div className="microphone-error" role="alert">
                       {microphoneError}
                     </div>
@@ -858,17 +990,13 @@ function App() {
                   <div className="caption-footer">
                     <span>
                       <span className="status-dot" />{' '}
-                      {transcriptionMode === 'sample'
-                        ? playing
-                          ? 'Sample playback running'
-                          : 'Sample playback paused'
-                        : museStatus === 'listening'
-                          ? 'Muse Voice listening'
-                          : museStatus === 'connecting'
-                            ? 'Connecting to Muse Voice'
-                            : museStatus === 'finishing'
-                              ? 'Finalizing captions'
-                              : 'Microphone paused'}
+                      {museStatus === 'listening'
+                        ? 'Muse Voice listening'
+                        : museStatus === 'connecting'
+                          ? 'Connecting to Muse Voice'
+                          : museStatus === 'finishing'
+                            ? 'Finalizing captions'
+                            : 'Microphone paused'}
                     </span>
                     <span>{active.transcript.length} caption segments</span>
                   </div>
@@ -883,15 +1011,13 @@ function App() {
                     <button
                       className="button button-dark full"
                       onClick={catchUp}
-                      disabled={catchUpLoading}
+                      disabled={catchUpLoading || savingClass}
                     >
                       {catchUpLoading ? 'Generating recap...' : 'Catch me up'}{' '}
                       <ArrowRight size={17} />
                     </button>
                     <span className="mock-note">
-                      {isSampleSession
-                        ? 'Sample recap · based on simulated captions'
-                        : 'Muse Spark recap · based on finalized captions'}
+                      Muse Spark recap · based on finalized captions
                     </span>
                     {catchUpNotice && (
                       <div className="catch-notice" role="status">
@@ -900,11 +1026,7 @@ function App() {
                     )}
                     {latestCatchUp && (
                       <div className="catch-result" role="status">
-                        <strong>
-                          {latestCatchUp.source === 'mock'
-                            ? 'Sample catch-up'
-                            : 'Muse Spark catch-up'}
-                        </strong>
+                        <strong>Muse Spark catch-up</strong>
                         <p>{latestCatchUp.text}</p>
                       </div>
                     )}
@@ -931,7 +1053,9 @@ function App() {
                   <div className="eyebrow">
                     <span className="eyebrow-line" /> YOUR LIBRARY
                   </div>
-                  <h1>My sessions</h1>
+                  <h1 id="sessions-heading" tabIndex={-1}>
+                    My sessions
+                  </h1>
                   <p>Lectures you saved on this device, ready when you are.</p>
                 </div>
                 <button
@@ -944,26 +1068,37 @@ function App() {
               {lessons.length ? (
                 <div className="session-list">
                   {lessons.map((lesson) => (
-                    <button
-                      className="session-row"
-                      key={lesson.id}
-                      onClick={() => openLesson(lesson.id)}
-                    >
-                      <span className="session-icon">
-                        <FileText size={23} />
-                      </span>
-                      <span className="session-details">
-                        <strong>{lesson.title}</strong>
-                        <small>
-                          {shortDate(lesson.date)} <span>·</span>{' '}
-                          {lesson.transcript.length} captions <span>·</span>{' '}
-                          {lesson.bookmarks.length} bookmarks
-                        </small>
-                      </span>
-                      <span className="session-open">
-                        Open session <ArrowRight size={17} />
-                      </span>
-                    </button>
+                    <div className="session-row" key={lesson.id}>
+                      <button
+                        type="button"
+                        className="session-row-open"
+                        onClick={() => void openLesson(lesson.id)}
+                        aria-label={`Open ${lesson.title}`}
+                      >
+                        <span className="session-icon">
+                          <FileText size={23} />
+                        </span>
+                        <span className="session-details">
+                          <strong>{lesson.title}</strong>
+                          <small>
+                            {shortDate(lesson.date)} <span>·</span>{' '}
+                            {lesson.transcript.length} captions <span>·</span>{' '}
+                            {lesson.bookmarks.length} bookmarks
+                          </small>
+                        </span>
+                        <span className="session-open">
+                          Open session <ArrowRight size={17} />
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="session-delete"
+                        onClick={() => requestDelete(lesson)}
+                        aria-label={`Delete ${lesson.title}`}
+                      >
+                        <Trash2 size={16} /> Delete
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -973,8 +1108,7 @@ function App() {
                   </div>
                   <h2>No saved sessions yet</h2>
                   <p>
-                    Start a sample class, then save it to build your study
-                    library.
+                    Start a class, then save it to build your study library.
                   </p>
                   <button
                     className="button button-dark"
@@ -1008,10 +1142,15 @@ function App() {
                   </p>
                 </div>
                 <span className="saved-pill">
-                  <Check size={15} /> Saved locally
+                  <Check size={15} />{' '}
+                  {isSampleSession
+                    ? 'Sample session · Saved locally'
+                    : 'Saved locally'}
                 </span>
               </div>
-              <div className="study-layout">
+              <div
+                className={`study-layout ${isSampleSession ? '' : 'study-layout-full'}`}
+              >
                 <div className="study-main">
                   <section className="study-card">
                     <div className="study-card-heading">
@@ -1053,6 +1192,112 @@ function App() {
                       </p>
                     )}
                   </section>
+                  <section className="study-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon lilac">
+                        <Sparkles size={21} />
+                      </div>
+                      <div>
+                        <h2>Study notes</h2>
+                        <p>Based on finalized class captions.</p>
+                      </div>
+                    </div>
+                    {active.studyNotes && (
+                      <div className="generated-notes">
+                        <p className="fine-print">
+                          {active.studyNotes.source === 'sample'
+                            ? 'Sample study notes · based on simulated captions, not AI output'
+                            : 'Muse Spark study notes · based on finalized captions'}
+                        </p>
+                        {!active.studyNotes.coversFullTranscript && (
+                          <p className="coverage-notice">
+                            Notes cover the latest part of this class.
+                          </p>
+                        )}
+                        <h3>Overview</h3>
+                        <p>{active.studyNotes.overview}</p>
+                        <h3>Key concepts</h3>
+                        {active.studyNotes.concepts.length ? (
+                          <ul>
+                            {active.studyNotes.concepts.map(
+                              (concept, index) => (
+                                <li key={`${concept.title}-${index}`}>
+                                  <strong>{concept.title}</strong> —{' '}
+                                  {concept.explanation}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        ) : (
+                          <p>
+                            No concepts could be identified from these captions.
+                          </p>
+                        )}
+                        <h3>Important takeaways</h3>
+                        <ul>
+                          {active.studyNotes.takeaways.map(
+                            (takeaway, index) => (
+                              <li key={index}>{takeaway}</li>
+                            ),
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    {studyNotesNotice && (
+                      <p className="empty-text" role="status">
+                        {studyNotesNotice}
+                      </p>
+                    )}
+                    {studyNotesLoading && (
+                      <p className="empty-text" role="status">
+                        Generating study notes...
+                      </p>
+                    )}
+                    {(studyNotesCanRetry ||
+                      (!active.studyNotes &&
+                        !studyNotesLoading &&
+                        !studyNotesNotice)) && (
+                      <button
+                        type="button"
+                        className="button button-dark"
+                        onClick={() => void generateStudyNotes()}
+                      >
+                        <Sparkles size={16} />
+                        {studyNotesCanRetry
+                          ? 'Retry Study Notes'
+                          : 'Generate Study Notes'}
+                      </button>
+                    )}
+                  </section>
+                  <section className="study-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon coral">
+                        <Bookmark size={21} />
+                      </div>
+                      <div>
+                        <h2>Bookmarked moments</h2>
+                        <p>Saved moments from the transcript.</p>
+                      </div>
+                    </div>
+                    {active.bookmarks.length ? (
+                      active.bookmarks.map((bookmark) => {
+                        const segment = active.transcript.find(
+                          (item) => item.id === bookmark.segmentId,
+                        )
+                        return segment ? (
+                          <div className="study-line" key={bookmark.id}>
+                            <time>{formatTime(segment.atSeconds)}</time>
+                            <div>
+                              <strong>{segment.speaker}</strong>
+                              <p>{segment.text}</p>
+                            </div>
+                          </div>
+                        ) : null
+                      })
+                    ) : (
+                      <p className="empty-text">No bookmarked moments yet.</p>
+                    )}
+                  </section>
                   <section className="study-card notes-card">
                     <div className="study-card-heading">
                       <div className="card-icon lilac">
@@ -1073,7 +1318,16 @@ function App() {
                       id="lesson-notes"
                       value={active.notes}
                       onChange={(event) => {
-                        setActive({ ...active, notes: event.target.value })
+                        const current =
+                          activeRef.current?.id === active.id
+                            ? activeRef.current
+                            : active
+                        const updated = {
+                          ...current,
+                          notes: event.target.value,
+                        }
+                        activeRef.current = updated
+                        setActive(updated)
                       }}
                       onBlur={(event) => updateNotes(event.target.value)}
                       placeholder="Add your thoughts, questions, or key takeaways..."
@@ -1084,8 +1338,8 @@ function App() {
                     </span>
                   </section>
                 </div>
-                <aside className="study-side">
-                  {isSampleSession && (
+                {isSampleSession && (
+                  <aside className="study-side">
                     <section className="study-card concepts-card">
                       <div className="study-card-heading">
                         <div className="card-icon coral">
@@ -1106,74 +1360,120 @@ function App() {
                         </div>
                       ))}
                     </section>
-                  )}
-                  <section className="study-card ask-card">
-                    <div className="study-card-heading">
-                      <div className="card-icon teal">
-                        <MessageCircle size={21} />
-                      </div>
-                      <div>
-                        <h2>Study helper</h2>
-                        <p>Try the mock study interface</p>
-                      </div>
-                    </div>
-                    <div className="mock-banner">
-                      <Sparkles size={16} />
-                      <span>
-                        MOCK AI RESPONSES — no AI service is connected.
-                      </span>
-                    </div>
-                    <div
-                      className="chat-messages"
-                      role="log"
-                      aria-label="Study conversation"
-                    >
-                      {active.studyMessages.length ? (
-                        active.studyMessages.map((message) => (
-                          <div
-                            key={message.id}
-                            className={`chat-bubble ${message.role}`}
-                          >
-                            {message.role === 'assistant' && (
-                              <strong>Mock study helper</strong>
-                            )}
-                            <p>{message.text}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="chat-empty">
-                          <Sparkles size={22} />
-                          <p>
-                            Ask a question about this lesson to see how study
-                            support will work.
-                          </p>
+                    <section className="study-card ask-card">
+                      <div className="study-card-heading">
+                        <div className="card-icon teal">
+                          <MessageCircle size={21} />
                         </div>
-                      )}
-                    </div>
-                    <form className="ask-form" onSubmit={sendQuestion}>
-                      <label className="sr-only" htmlFor="study-question">
-                        Ask about this lesson
-                      </label>
-                      <input
-                        id="study-question"
-                        value={question}
-                        onChange={(event) => setQuestion(event.target.value)}
-                        placeholder="Ask about this lesson..."
-                      />
-                      <button
-                        type="submit"
-                        aria-label="Send question"
-                        disabled={!question.trim()}
+                        <div>
+                          <h2>Study helper</h2>
+                          <p>Try the mock study interface</p>
+                        </div>
+                      </div>
+                      <div className="mock-banner">
+                        <Sparkles size={16} />
+                        <span>
+                          MOCK AI RESPONSES — no AI service is connected.
+                        </span>
+                      </div>
+                      <div
+                        className="chat-messages"
+                        role="log"
+                        aria-label="Study conversation"
                       >
-                        <Send size={18} />
-                      </button>
-                    </form>
-                  </section>
-                </aside>
+                        {active.studyMessages.length ? (
+                          active.studyMessages.map((message) => (
+                            <div
+                              key={message.id}
+                              className={`chat-bubble ${message.role}`}
+                            >
+                              {message.role === 'assistant' && (
+                                <strong>Mock study helper</strong>
+                              )}
+                              <p>{message.text}</p>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="chat-empty">
+                            <Sparkles size={22} />
+                            <p>
+                              Ask a question about this lesson to see how study
+                              support will work.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      <form className="ask-form" onSubmit={sendQuestion}>
+                        <label className="sr-only" htmlFor="study-question">
+                          Ask about this lesson
+                        </label>
+                        <input
+                          id="study-question"
+                          value={question}
+                          onChange={(event) => setQuestion(event.target.value)}
+                          placeholder="Ask about this lesson..."
+                        />
+                        <button
+                          type="submit"
+                          aria-label="Send question"
+                          disabled={!question.trim()}
+                        >
+                          <Send size={18} />
+                        </button>
+                      </form>
+                    </section>
+                  </aside>
+                )}
               </div>
             </div>
           )}
         </main>
+        {deleteTarget && (
+          <dialog
+            ref={deleteDialog}
+            className="delete-dialog"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-description"
+            onCancel={(event) => {
+              if (
+                deletingSession ||
+                deletionPending.current.has(deleteTarget.id)
+              )
+                event.preventDefault()
+              else cancelDelete()
+            }}
+          >
+            <h2 id="delete-dialog-title">Delete “{deleteTarget.title}”?</h2>
+            <p id="delete-dialog-description">
+              This permanently deletes this saved session and all its captions,
+              bookmarks, Study Notes, and personal notes. This cannot be undone.
+            </p>
+            {deleteError && (
+              <p className="delete-error" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="delete-dialog-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={cancelDelete}
+                disabled={deletingSession}
+                autoFocus
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button button-danger"
+                onClick={() => void confirmDelete()}
+                disabled={deletingSession}
+              >
+                {deletingSession ? 'Deleting...' : 'Delete session'}
+              </button>
+            </div>
+          </dialog>
+        )}
         <footer className="mobile-nav" aria-label="Mobile navigation">
           {navigation.map((item) => (
             <button

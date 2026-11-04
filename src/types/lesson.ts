@@ -34,6 +34,16 @@ export interface StudyMessage {
   source?: 'mock'
 }
 
+export interface StudyNotes {
+  createdAt: string
+  source: 'muse' | 'sample'
+  throughSegmentId: string
+  coversFullTranscript: boolean
+  overview: string
+  concepts: { title: string; explanation: string }[]
+  takeaways: string[]
+}
+
 export interface LessonSession {
   id: string
   transcriptSource?: 'sample' | 'muse'
@@ -47,6 +57,7 @@ export interface LessonSession {
   catchUps: CatchUpExplanation[]
   studyMessages: StudyMessage[]
   notes: string
+  studyNotes?: StudyNotes
 }
 
 export function formatTime(seconds: number): string {
