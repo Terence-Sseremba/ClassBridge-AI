@@ -34,11 +34,18 @@ function log(connectionId, stage, details = {}) {
   )
 }
 
-const port = Number(process.env.CLASSBRIDGE_SERVER_PORT ?? 8787)
+const isProduction = process.env.NODE_ENV === 'production'
+const port = Number(
+  isProduction
+    ? (process.env.PORT ?? 8787)
+    : (process.env.CLASSBRIDGE_SERVER_PORT ?? 8787),
+)
+const host = isProduction ? '0.0.0.0' : '127.0.0.1'
 const allowedOrigins = new Set([
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  process.env.CLASSBRIDGE_ALLOWED_ORIGIN,
+  ...(!isProduction ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : []),
+  ...(process.env.CLASSBRIDGE_ALLOWED_ORIGIN
+    ? [process.env.CLASSBRIDGE_ALLOWED_ORIGIN]
+    : []),
 ])
 const MAX_CATCH_UP_BYTES = 65536
 const MAX_CATCH_UP_CHARACTERS = 12000
@@ -435,6 +442,29 @@ async function handleStudyNotes(request, response) {
 }
 
 const server = http.createServer((request, response) => {
+  const isJsonApi =
+    request.url === '/api/study-notes' || request.url === '/api/catch-up'
+  if (isJsonApi && allowedOrigins.has(request.headers.origin)) {
+    response.setHeader('Access-Control-Allow-Origin', request.headers.origin)
+    response.setHeader('Vary', 'Origin')
+  }
+  if (isJsonApi && request.method === 'OPTIONS') {
+    if (!allowedOrigins.has(request.headers.origin)) {
+      sendJson(response, 403, { error: 'This origin is not allowed.' })
+      return
+    }
+    response.writeHead(204, {
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Cache-Control': 'no-store',
+    })
+    response.end()
+    return
+  }
+  if (request.url === '/health' && request.method === 'GET') {
+    sendJson(response, 200, { status: 'ok' })
+    return
+  }
   if (request.url === '/api/study-notes' && request.method === 'POST') {
     void handleStudyNotes(request, response)
     return
@@ -621,9 +651,9 @@ browserSockets.on('connection', (browser) => {
   })
 })
 
-server.listen(port, '127.0.0.1', () => {
+server.listen(port, host, () => {
   process.stdout.write(
-    `ClassBridge transcription server listening on 127.0.0.1:${server.address().port}\n`,
+    `ClassBridge transcription server listening on ${host}:${server.address().port}\n`,
   )
   log(0, 'startup', { modelApiKeyConfigured: true })
 })
