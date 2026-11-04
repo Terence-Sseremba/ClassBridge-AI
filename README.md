@@ -13,14 +13,14 @@ Use `npm run build` and `npm run lint` to check the project. On Windows PowerShe
 
 ## Try the foundation
 
-1. On Home, name a class and choose **Sample class** or **Microphone**.
-2. Sample class uses simulated captions and a labeled mock recap. Microphone streams audio to Meta Muse Voice Transcribe through the local ClassBridge server. Pause or bookmark captions; **Catch me up** sends recent finalized captions to Muse Spark 1.3 through that server.
-3. Select **Save & finish**. The lesson is stored in this browser's IndexedDB.
-4. Open **My sessions** or the saved study view. Review the transcript, add notes, and try the clearly labeled **mock AI** study helper.
+1. On Home, name a class and select **Start class**. Microphone audio streams to Meta Muse Voice Transcribe through the local ClassBridge server.
+2. Pause or bookmark captions. **Catch me up** sends recent finalized captions to Muse Spark 1.3 through that server.
+3. Select **Save & finish**. The finalized transcript is saved in this browser's IndexedDB before Muse Spark begins generating study notes.
+4. Review the saved transcript, generated study notes, bookmarks, and optional personal notes in the Study Session. Existing saved sample sessions remain readable and clearly labeled.
 
-In a saved study session, **Generate Study Notes** creates a transcript-grounded overview, concepts, and takeaways with Muse Spark 1.3 for microphone classes. Notes and bookmarked moments are saved on this device. Sample classes show explicitly labeled deterministic sample notes. For long classes, notes use the latest 80 finalized captions within 12,000 characters and display a notice when earlier captions are excluded. The student's editable notes remain separate.
+Study Notes contain a transcript-grounded overview, concepts, and takeaways. Generation starts automatically after a microphone class is saved when enough finalized captions are available. Generation may finish after opening another session; its result is saved to the original class. Failures leave the class saved and offer **Retry Study Notes**. Existing notes reopen without another model request. For long classes, notes use the latest 80 finalized captions within 12,000 characters and display a notice when earlier captions are excluded. The student's editable notes remain separate.
 
-Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. The separate Study helper chat remains a labeled mock feature.
+Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. The mock Study helper is hidden for real student sessions; historical messages remain in existing saved sessions.
 
 ## Muse Voice microphone setup
 
@@ -57,6 +57,8 @@ The realtime path was manually verified with a laptop microphone on a working mo
 - `public/pcm-worklet.js` — 24 kHz mono PCM conversion.
 - `server/index.mjs` — local key-protecting Meta WebSocket proxy.
 - `src/services/reasoning.ts` — catch-up/study interface and mock responses.
+- `src/services/sessionFlow.ts` — finalize, save, then begin study-notes generation.
+- `src/services/studyNotesFlow.ts` — associate generation with its saved lesson and merge notes into the latest local record.
 - `src/App.tsx` — four screens and their state transitions.
 - `src/styles.css` — Tailwind entry point and responsive component styling.
 

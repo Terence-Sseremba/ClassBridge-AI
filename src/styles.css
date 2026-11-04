@@ -548,29 +548,6 @@ h3 {
   gap: 5px;
   margin-top: 14px;
 }
-.mode-choice {
-  display: flex;
-  gap: 20px;
-  border: 0;
-  padding: 0;
-  margin: 0 0 18px;
-}
-.mode-choice legend {
-  font-size: 11px;
-  font-weight: 800;
-  color: #485e58;
-  margin-bottom: 9px;
-}
-.mode-choice label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #485e58;
-}
-.mode-choice input {
-  accent-color: #276b5b;
-}
 .interim-caption {
   color: #6f8278;
   font-size: 14px;
@@ -968,6 +945,9 @@ h3 {
 }
 .study-layout {
   grid-template-columns: minmax(0, 1fr) 330px;
+}
+.study-layout-full {
+  grid-template-columns: minmax(0, 1fr);
 }
 .study-main,
 .study-side {
