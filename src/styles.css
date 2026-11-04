@@ -881,12 +881,46 @@ h3 {
   border-color: #9fc9b3;
   background: #fbfdfb;
 }
+.session-row-open {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.session-row-open:focus-visible,
+.session-delete:focus-visible {
+  outline: 3px solid #5b9b84;
+  outline-offset: 3px;
+}
+.session-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: 1px solid #efd4d0;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fff7f5;
+  color: #9b4039;
+  font-size: 12px;
+  font-weight: 800;
+}
+.session-delete:hover {
+  background: #ffebe7;
+}
 .session-icon {
   width: 48px;
   height: 48px;
 }
 .session-details {
   flex: 1;
+  min-width: 0;
 }
 .session-details strong,
 .session-details small {
@@ -895,6 +929,7 @@ h3 {
 .session-details strong {
   font-size: 16px;
   margin-bottom: 7px;
+  overflow-wrap: anywhere;
 }
 .session-details small {
   color: #9baaa2;
@@ -910,6 +945,47 @@ h3 {
   color: #39816a;
   font-size: 12px;
   font-weight: 800;
+}
+.delete-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  margin: auto;
+  padding: 25px;
+  border: 1px solid #e5ebe5;
+  border-radius: 14px;
+  box-shadow: 0 20px 70px #153b352e;
+  color: #253b35;
+}
+.delete-dialog::backdrop {
+  background: #13251eb3;
+}
+.delete-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 19px;
+}
+.delete-dialog p {
+  margin: 0;
+  color: #52665b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.delete-dialog .delete-error {
+  margin-top: 14px;
+  color: #9b4039;
+}
+.delete-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.button-danger {
+  background: #a34139;
+  color: white;
+}
+.button-danger:hover {
+  background: #852f2a;
 }
 .sessions-empty {
   background: white;
@@ -1342,6 +1418,13 @@ h3 {
   .session-row {
     padding: 15px;
     gap: 12px;
+  }
+  .session-row-open {
+    gap: 12px;
+  }
+  .session-delete {
+    padding: 9px;
+    font-size: 11px;
   }
   .session-open {
     font-size: 0;

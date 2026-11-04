@@ -48,4 +48,7 @@ export const lessonStorage = {
   async save(lesson: LessonSession): Promise<void> {
     await runRequest('readwrite', (store) => store.put(lesson))
   },
+  async remove(id: string): Promise<void> {
+    await runRequest('readwrite', (store) => store.delete(id))
+  },
 }

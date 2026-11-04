@@ -21,11 +21,13 @@ import {
   Plus,
   Send,
   Sparkles,
+  Trash2,
   Volume2,
   X,
 } from 'lucide-react'
 import { lessonStorage } from './storage/lessons'
 import { finishClassSession } from './services/sessionFlow'
+import { deleteSavedSession } from './services/sessionDeletion'
 import { generateAndSaveStudyNotes } from './services/studyNotesFlow'
 import {
   CatchUpRequestError,
@@ -96,8 +98,15 @@ function App() {
   const [studyNotesNotice, setStudyNotesNotice] = useState('')
   const [studyNotesCanRetry, setStudyNotesCanRetry] = useState(false)
   const [savingClass, setSavingClass] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    title: string
+  } | null>(null)
+  const [deletingSession, setDeletingSession] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const captionEnd = useRef<HTMLDivElement>(null)
+  const deleteDialog = useRef<HTMLDialogElement>(null)
   const microphone = useRef<MuseSession | null>(null)
   const microphoneStart = useRef<Promise<MuseSession> | null>(null)
   const microphoneStop = useRef<Promise<boolean> | null>(null)
@@ -107,6 +116,8 @@ function App() {
   const savePending = useRef(false)
   const beginPending = useRef(false)
   const persistQueue = useRef<Promise<void>>(Promise.resolve())
+  const deletionPending = useRef(new Set<string>())
+  const deletedSessionIds = useRef(new Set<string>())
 
   useEffect(() => {
     return () => {
@@ -121,13 +132,22 @@ function App() {
   useEffect(() => {
     lessonStorage
       .list()
-      .then(setLessons)
+      .then((items) =>
+        setLessons(
+          items.filter((item) => !deletedSessionIds.current.has(item.id)),
+        ),
+      )
       .catch(() =>
         setStorageError(
           'Local storage is unavailable. Sessions cannot be saved in this browser.',
         ),
       )
   }, [])
+
+  useEffect(() => {
+    if (deleteTarget && !deleteDialog.current?.open)
+      deleteDialog.current?.showModal()
+  }, [deleteTarget])
 
   useEffect(() => {
     captionEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -272,10 +292,20 @@ function App() {
     return result
   }
 
+  async function refreshLessons(): Promise<void> {
+    const items = await lessonStorage.list()
+    setLessons(items.filter((item) => !deletedSessionIds.current.has(item.id)))
+  }
+
   async function persist(lesson: LessonSession): Promise<boolean> {
     try {
-      await serializeStorage(() => lessonStorage.save(lesson))
-      setLessons(await lessonStorage.list())
+      const saved = await serializeStorage(async () => {
+        if (deletedSessionIds.current.has(lesson.id)) return false
+        await lessonStorage.save(lesson)
+        return true
+      })
+      if (!saved) return false
+      await refreshLessons()
       setStorageError('')
       return true
     } catch {
@@ -315,7 +345,7 @@ function App() {
     try {
       await persistQueue.current.catch(() => undefined)
       const lesson = await lessonStorage.get(id)
-      if (lesson) {
+      if (lesson && !deletedSessionIds.current.has(id)) {
         activeRef.current = lesson
         setActive(lesson)
         setStudyNotesLoading(studyNotesPending.current.has(lesson.id))
@@ -326,6 +356,66 @@ function App() {
       }
     } catch {
       setStorageError('Could not open this session from local storage.')
+    }
+  }
+
+  function requestDelete(lesson: LessonSession) {
+    if (deletionPending.current.has(lesson.id)) return
+    setDeleteError('')
+    setDeleteTarget({ id: lesson.id, title: lesson.title })
+  }
+
+  function cancelDelete() {
+    if (
+      deletingSession ||
+      (deleteTarget && deletionPending.current.has(deleteTarget.id))
+    )
+      return
+    setDeleteTarget(null)
+    setDeleteError('')
+  }
+
+  async function confirmDelete() {
+    const target = deleteTarget
+    if (!target || deletionPending.current.has(target.id)) return
+    setDeletingSession(true)
+    setDeleteError('')
+    try {
+      const result = await deleteSavedSession({
+        lessonId: target.id,
+        pending: deletionPending.current,
+        deleted: deletedSessionIds.current,
+        serialize: serializeStorage,
+        storage: lessonStorage,
+      })
+      if (result === 'missing') {
+        setDeleteError('This session is no longer in local storage.')
+        return
+      }
+      if (result !== 'deleted') return
+      setLessons((items) => items.filter((item) => item.id !== target.id))
+      if (activeRef.current?.id === target.id) {
+        activeRef.current = null
+        setActive(null)
+        setPage('sessions')
+      }
+      setDeleteTarget(null)
+      window.setTimeout(
+        () => document.getElementById('sessions-heading')?.focus(),
+        0,
+      )
+      try {
+        await refreshLessons()
+        setStorageError('')
+      } catch {
+        setStorageError(
+          'Session deleted, but the session list could not be refreshed.',
+        )
+      }
+    } catch {
+      setDeleteError('Could not delete this session. Please try again.')
+    } finally {
+      setDeletingSession(false)
     }
   }
 
@@ -511,7 +601,7 @@ function App() {
           setStorageError('')
         }
         try {
-          setLessons(await lessonStorage.list())
+          await refreshLessons()
         } catch {
           setStorageError('Could not refresh the saved sessions list.')
         }
@@ -963,7 +1053,9 @@ function App() {
                   <div className="eyebrow">
                     <span className="eyebrow-line" /> YOUR LIBRARY
                   </div>
-                  <h1>My sessions</h1>
+                  <h1 id="sessions-heading" tabIndex={-1}>
+                    My sessions
+                  </h1>
                   <p>Lectures you saved on this device, ready when you are.</p>
                 </div>
                 <button
@@ -976,26 +1068,37 @@ function App() {
               {lessons.length ? (
                 <div className="session-list">
                   {lessons.map((lesson) => (
-                    <button
-                      className="session-row"
-                      key={lesson.id}
-                      onClick={() => openLesson(lesson.id)}
-                    >
-                      <span className="session-icon">
-                        <FileText size={23} />
-                      </span>
-                      <span className="session-details">
-                        <strong>{lesson.title}</strong>
-                        <small>
-                          {shortDate(lesson.date)} <span>·</span>{' '}
-                          {lesson.transcript.length} captions <span>·</span>{' '}
-                          {lesson.bookmarks.length} bookmarks
-                        </small>
-                      </span>
-                      <span className="session-open">
-                        Open session <ArrowRight size={17} />
-                      </span>
-                    </button>
+                    <div className="session-row" key={lesson.id}>
+                      <button
+                        type="button"
+                        className="session-row-open"
+                        onClick={() => void openLesson(lesson.id)}
+                        aria-label={`Open ${lesson.title}`}
+                      >
+                        <span className="session-icon">
+                          <FileText size={23} />
+                        </span>
+                        <span className="session-details">
+                          <strong>{lesson.title}</strong>
+                          <small>
+                            {shortDate(lesson.date)} <span>·</span>{' '}
+                            {lesson.transcript.length} captions <span>·</span>{' '}
+                            {lesson.bookmarks.length} bookmarks
+                          </small>
+                        </span>
+                        <span className="session-open">
+                          Open session <ArrowRight size={17} />
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="session-delete"
+                        onClick={() => requestDelete(lesson)}
+                        aria-label={`Delete ${lesson.title}`}
+                      >
+                        <Trash2 size={16} /> Delete
+                      </button>
+                    </div>
                   ))}
                 </div>
               ) : (
@@ -1325,6 +1428,52 @@ function App() {
             </div>
           )}
         </main>
+        {deleteTarget && (
+          <dialog
+            ref={deleteDialog}
+            className="delete-dialog"
+            aria-labelledby="delete-dialog-title"
+            aria-describedby="delete-dialog-description"
+            onCancel={(event) => {
+              if (
+                deletingSession ||
+                deletionPending.current.has(deleteTarget.id)
+              )
+                event.preventDefault()
+              else cancelDelete()
+            }}
+          >
+            <h2 id="delete-dialog-title">Delete “{deleteTarget.title}”?</h2>
+            <p id="delete-dialog-description">
+              This permanently deletes this saved session and all its captions,
+              bookmarks, Study Notes, and personal notes. This cannot be undone.
+            </p>
+            {deleteError && (
+              <p className="delete-error" role="alert">
+                {deleteError}
+              </p>
+            )}
+            <div className="delete-dialog-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={cancelDelete}
+                disabled={deletingSession}
+                autoFocus
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button button-danger"
+                onClick={() => void confirmDelete()}
+                disabled={deletingSession}
+              >
+                {deletingSession ? 'Deleting...' : 'Delete session'}
+              </button>
+            </div>
+          </dialog>
+        )}
         <footer className="mobile-nav" aria-label="Mobile navigation">
           {navigation.map((item) => (
             <button

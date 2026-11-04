@@ -22,6 +22,8 @@ Study Notes contain a transcript-grounded overview, concepts, and takeaways. Gen
 
 Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. The mock Study helper is hidden for real student sessions; historical messages remain in existing saved sessions.
 
+**My sessions** includes a per-session Delete action. Confirming removes that session and its local transcript, notes, bookmarks, and recap history permanently; Cancel leaves it untouched. A pending Study Notes response cannot restore a deleted session.
+
 ## Muse Voice microphone setup
 
 1. Use Node.js 24.10 or later (or 22.21 or later) and run `npm install`.
@@ -59,6 +61,7 @@ The realtime path was manually verified with a laptop microphone on a working mo
 - `src/services/reasoning.ts` — catch-up/study interface and mock responses.
 - `src/services/sessionFlow.ts` — finalize, save, then begin study-notes generation.
 - `src/services/studyNotesFlow.ts` — associate generation with its saved lesson and merge notes into the latest local record.
+- `src/services/sessionDeletion.ts` — serialize and guard deletion of one saved lesson.
 - `src/App.tsx` — four screens and their state transitions.
 - `src/styles.css` — Tailwind entry point and responsive component styling.
 
