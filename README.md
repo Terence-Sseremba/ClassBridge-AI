@@ -18,7 +18,9 @@ Use `npm run build` and `npm run lint` to check the project. On Windows PowerShe
 3. Select **Save & finish**. The lesson is stored in this browser's IndexedDB.
 4. Open **My sessions** or the saved study view. Review the transcript, add notes, and try the clearly labeled **mock AI** study helper.
 
-Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. Study responses remain a labeled mock feature.
+In a saved study session, **Generate Study Notes** creates a transcript-grounded overview, concepts, and takeaways with Muse Spark 1.3 for microphone classes. Notes and bookmarked moments are saved on this device. Sample classes show explicitly labeled deterministic sample notes. For long classes, notes use the latest 80 finalized captions within 12,000 characters and display a notice when earlier captions are excluded. The student's editable notes remain separate.
+
+Sessions are local to the current browser profile. Clearing browser site data removes them. Only completed Muse transcript turns are saved. Speaker names are not identified. The separate Study helper chat remains a labeled mock feature.
 
 ## Muse Voice microphone setup
 

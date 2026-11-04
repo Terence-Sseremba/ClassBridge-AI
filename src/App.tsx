@@ -31,7 +31,12 @@ import {
   hasEnoughCatchUpContext,
   mockReasoningService,
   museCatchUp,
+  museStudyNotes,
+  hasEnoughStudyNotesContext,
+  sampleStudyNotes,
   selectCatchUpContext,
+  selectStudyNotesContext,
+  StudyNotesRequestError,
 } from './services/reasoning'
 import { mockTranscriptionService } from './services/transcription'
 import { startMuseTranscription } from './services/museTranscription'
@@ -104,12 +109,16 @@ function App() {
   const [catchUpNotice, setCatchUpNotice] = useState('')
   const [question, setQuestion] = useState('')
   const [storageError, setStorageError] = useState('')
+  const [studyNotesLoading, setStudyNotesLoading] = useState(false)
+  const [studyNotesNotice, setStudyNotesNotice] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const captionEnd = useRef<HTMLDivElement>(null)
   const microphone = useRef<MuseSession | null>(null)
   const microphoneStart = useRef<Promise<MuseSession> | null>(null)
   const activeRef = useRef<LessonSession | null>(null)
   const catchUpPending = useRef(false)
+  const studyNotesPending = useRef<string | null>(null)
+  const persistQueue = useRef<Promise<void>>(Promise.resolve())
 
   useEffect(() => {
     return () => {
@@ -282,7 +291,11 @@ function App() {
 
   async function persist(lesson: LessonSession): Promise<boolean> {
     try {
-      await lessonStorage.save(lesson)
+      const save = persistQueue.current
+        .catch(() => undefined)
+        .then(() => lessonStorage.save(lesson))
+      persistQueue.current = save
+      await save
       setLessons(await lessonStorage.list())
       setStorageError('')
       return true
@@ -314,7 +327,11 @@ function App() {
     try {
       const lesson = await lessonStorage.get(id)
       if (lesson) {
+        activeRef.current = lesson
         setActive(lesson)
+        studyNotesPending.current = null
+        setStudyNotesLoading(false)
+        setStudyNotesNotice('')
         setPage('study')
         setStorageError('')
       }
@@ -428,21 +445,91 @@ function App() {
       createdAt: new Date().toISOString(),
     }
     const reply = await mockReasoningService.answer(active, asked)
+    const current = activeRef.current
+    if (!current || current.id !== active.id) return
     const updated = {
-      ...active,
-      studyMessages: [...active.studyMessages, studentMessage, reply],
+      ...current,
+      studyMessages: [...current.studyMessages, studentMessage, reply],
       updatedAt: new Date().toISOString(),
     }
+    activeRef.current = updated
     setActive(updated)
     setQuestion('')
     await persist(updated)
   }
 
   async function updateNotes(notes: string) {
-    if (!active) return
-    const updated = { ...active, notes, updatedAt: new Date().toISOString() }
+    const current = activeRef.current
+    if (!active || !current || current.id !== active.id) return
+    const updated = { ...current, notes, updatedAt: new Date().toISOString() }
+    activeRef.current = updated
     setActive(updated)
     await persist(updated)
+  }
+
+  async function generateStudyNotes() {
+    const lesson = activeRef.current ?? active
+    if (
+      !lesson ||
+      lesson.status !== 'saved' ||
+      studyNotesPending.current === lesson.id
+    )
+      return
+    const isSample =
+      lesson.transcriptSource === 'sample' ||
+      (!lesson.transcriptSource &&
+        lesson.transcript.length > 0 &&
+        lesson.transcript.every((segment) => segment.id.startsWith('sample-')))
+    const selection = selectStudyNotesContext(lesson.transcript)
+    if (
+      selection.emptyReason ||
+      !hasEnoughStudyNotesContext(selection.segments)
+    ) {
+      setStudyNotesNotice(
+        selection.emptyReason === 'oversized-segment'
+          ? 'The latest caption is too large for study notes.'
+          : 'More finalized captions are needed for study notes.',
+      )
+      return
+    }
+    studyNotesPending.current = lesson.id
+    setStudyNotesLoading(true)
+    setStudyNotesNotice('')
+    try {
+      const content = isSample
+        ? sampleStudyNotes(lesson, selection.segments)
+        : await museStudyNotes(selection.segments)
+      const current = activeRef.current
+      if (!current || current.id !== lesson.id) return
+      const updated: LessonSession = {
+        ...current,
+        studyNotes: {
+          ...content,
+          createdAt: new Date().toISOString(),
+          source: isSample ? 'sample' : 'muse',
+          throughSegmentId: selection.segments.at(-1)?.id ?? '',
+          coversFullTranscript: selection.coversFullTranscript,
+        },
+      }
+      activeRef.current = updated
+      setActive(updated)
+      if (!(await persist(updated)))
+        setStudyNotesNotice(
+          'Study notes were generated but could not be saved on this device. Please try again.',
+        )
+    } catch (error) {
+      if (activeRef.current?.id === lesson.id)
+        setStudyNotesNotice(
+          error instanceof StudyNotesRequestError
+            ? error.message
+            : 'Could not generate study notes. Please try again.',
+        )
+    } finally {
+      if (studyNotesPending.current === lesson.id) {
+        studyNotesPending.current = null
+        setStudyNotesLoading(false)
+      }
+    }
   }
 
   const isSampleSession = Boolean(
@@ -1053,6 +1140,110 @@ function App() {
                       </p>
                     )}
                   </section>
+                  <section className="study-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon lilac">
+                        <Sparkles size={21} />
+                      </div>
+                      <div>
+                        <h2>Study notes</h2>
+                        <p>Based on finalized class captions.</p>
+                      </div>
+                    </div>
+                    {active.studyNotes && (
+                      <div className="generated-notes">
+                        <p className="fine-print">
+                          {active.studyNotes.source === 'sample'
+                            ? 'Sample study notes · based on simulated captions, not AI output'
+                            : 'Muse Spark study notes · based on finalized captions'}
+                        </p>
+                        {!active.studyNotes.coversFullTranscript && (
+                          <p className="coverage-notice">
+                            Notes cover the latest part of this class.
+                          </p>
+                        )}
+                        <h3>Overview</h3>
+                        <p>{active.studyNotes.overview}</p>
+                        <h3>Key concepts</h3>
+                        {active.studyNotes.concepts.length ? (
+                          <ul>
+                            {active.studyNotes.concepts.map(
+                              (concept, index) => (
+                                <li key={`${concept.title}-${index}`}>
+                                  <strong>{concept.title}</strong> —{' '}
+                                  {concept.explanation}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        ) : (
+                          <p>
+                            No concepts could be identified from these captions.
+                          </p>
+                        )}
+                        <h3>Important takeaways</h3>
+                        <ul>
+                          {active.studyNotes.takeaways.map(
+                            (takeaway, index) => (
+                              <li key={index}>{takeaway}</li>
+                            ),
+                          )}
+                        </ul>
+                      </div>
+                    )}
+                    {studyNotesNotice && (
+                      <p className="empty-text" role="status">
+                        {studyNotesNotice}
+                      </p>
+                    )}
+                    {studyNotesLoading && (
+                      <p className="empty-text" role="status">
+                        Generating study notes...
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className="button button-dark"
+                      onClick={() => void generateStudyNotes()}
+                      disabled={studyNotesLoading}
+                    >
+                      <Sparkles size={16} />
+                      {studyNotesLoading
+                        ? 'Generating study notes...'
+                        : active.studyNotes
+                          ? 'Regenerate Study Notes'
+                          : 'Generate Study Notes'}
+                    </button>
+                  </section>
+                  <section className="study-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon coral">
+                        <Bookmark size={21} />
+                      </div>
+                      <div>
+                        <h2>Bookmarked moments</h2>
+                        <p>Saved moments from the transcript.</p>
+                      </div>
+                    </div>
+                    {active.bookmarks.length ? (
+                      active.bookmarks.map((bookmark) => {
+                        const segment = active.transcript.find(
+                          (item) => item.id === bookmark.segmentId,
+                        )
+                        return segment ? (
+                          <div className="study-line" key={bookmark.id}>
+                            <time>{formatTime(segment.atSeconds)}</time>
+                            <div>
+                              <strong>{segment.speaker}</strong>
+                              <p>{segment.text}</p>
+                            </div>
+                          </div>
+                        ) : null
+                      })
+                    ) : (
+                      <p className="empty-text">No bookmarked moments yet.</p>
+                    )}
+                  </section>
                   <section className="study-card notes-card">
                     <div className="study-card-heading">
                       <div className="card-icon lilac">
@@ -1073,7 +1264,16 @@ function App() {
                       id="lesson-notes"
                       value={active.notes}
                       onChange={(event) => {
-                        setActive({ ...active, notes: event.target.value })
+                        const current =
+                          activeRef.current?.id === active.id
+                            ? activeRef.current
+                            : active
+                        const updated = {
+                          ...current,
+                          notes: event.target.value,
+                        }
+                        activeRef.current = updated
+                        setActive(updated)
                       }}
                       onBlur={(event) => updateNotes(event.target.value)}
                       placeholder="Add your thoughts, questions, or key takeaways..."

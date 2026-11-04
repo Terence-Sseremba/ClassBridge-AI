@@ -1005,6 +1005,28 @@ h3 {
 .saved-bookmark {
   flex: none;
 }
+.generated-notes h3 {
+  margin: 18px 0 7px;
+  font-size: 14px;
+}
+.generated-notes p,
+.generated-notes li {
+  color: #52665b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.generated-notes ul {
+  padding-left: 20px;
+}
+.generated-notes li + li {
+  margin-top: 8px;
+}
+.generated-notes .coverage-notice {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff4dd;
+  color: #72551e;
+}
 .notes-card textarea {
   width: 100%;
   border: 1px solid #e1e8e0;
