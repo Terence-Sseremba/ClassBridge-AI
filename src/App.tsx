@@ -647,7 +647,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${page === 'live' ? 'live-workspace' : ''}`}>
       <aside
         className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Main navigation"
@@ -866,21 +866,35 @@ function App() {
 
           {page === 'live' && active && (
             <div className="page-wrap live-page">
-              <div className="page-heading">
+              <div className="page-heading live-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> LIVE CLASSROOM
-                  </div>
+                  <span
+                    className={`live-page-status live-page-status-${microphoneError && museStatus === 'stopped' ? 'error' : museStatus}`}
+                    role="status"
+                  >
+                    <span aria-hidden="true" />
+                    {museStatus === 'listening'
+                      ? 'Microphone listening'
+                      : museStatus === 'connecting'
+                        ? 'Connecting to Muse Voice'
+                        : museStatus === 'finishing'
+                          ? 'Finalizing captions'
+                          : microphoneError
+                            ? 'Microphone unavailable'
+                            : 'Microphone paused'}
+                  </span>
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
-                    <span className="separator">·</span> Microphone session
+                    <span className="separator">·</span> Live class
                   </p>
                 </div>
                 <button
-                  className="button button-outline"
+                  type="button"
+                  className="button button-dark live-save-button"
                   onClick={() => void saveClass()}
                   disabled={savingClass}
+                  aria-busy={savingClass}
                 >
                   <Check size={17} />{' '}
                   {savingClass ? 'Finalizing and saving...' : 'Save & finish'}
@@ -890,20 +904,14 @@ function App() {
                 <section className="caption-card">
                   <div className="card-top">
                     <div>
-                      <span className="live-indicator">
-                        <span />{' '}
-                        {museStatus === 'listening'
-                          ? 'MUSE VOICE LIVE'
-                          : museStatus === 'connecting'
-                            ? 'CONNECTING TO MUSE'
-                            : museStatus === 'finishing'
-                              ? 'FINISHING TRANSCRIPT'
-                              : 'MICROPHONE PAUSED'}
-                      </span>
                       <h2>Live captions</h2>
+                      <p>
+                        Finalized speech appears here as the class continues.
+                      </p>
                     </div>
                     <button
-                      className="icon-button playback"
+                      type="button"
+                      className="live-microphone-control"
                       onClick={() => {
                         if (listening) void stopListening()
                         else void startListening()
@@ -914,12 +922,25 @@ function App() {
                         museStatus === 'finishing'
                       }
                       aria-label={
-                        listening
-                          ? 'Pause microphone transcription'
-                          : 'Resume microphone transcription'
+                        museStatus === 'connecting'
+                          ? 'Connecting to Muse Voice'
+                          : museStatus === 'finishing'
+                            ? 'Finalizing microphone transcription'
+                            : listening
+                              ? 'Pause microphone transcription'
+                              : 'Resume microphone transcription'
                       }
                     >
                       {listening ? <Pause size={19} /> : <Play size={19} />}
+                      <span>
+                        {museStatus === 'connecting'
+                          ? 'Connecting...'
+                          : museStatus === 'finishing'
+                            ? 'Finishing...'
+                            : listening
+                              ? 'Pause microphone'
+                              : 'Resume microphone'}
+                      </span>
                     </button>
                   </div>
                   <div
@@ -935,7 +956,6 @@ function App() {
                             {formatTime(segment.atSeconds)}
                           </span>
                           <div>
-                            <strong>{segment.speaker}</strong>
                             <p>{segment.text}</p>
                           </div>
                           <button
@@ -971,13 +991,18 @@ function App() {
                             ? 'Listening for speech...'
                             : museStatus === 'connecting'
                               ? 'Connecting to Muse Voice...'
-                              : 'Microphone is paused'}
+                              : museStatus === 'finishing'
+                                ? 'Finalizing captions...'
+                                : 'Microphone is paused'}
                         </strong>
                         <span>Recognized speech will appear here.</span>
                       </div>
                     )}
                     {interimCaption && (
-                      <p className="interim-caption">{interimCaption}</p>
+                      <p className="interim-caption">
+                        <span className="interim-label">In progress</span>
+                        {interimCaption}
+                      </p>
                     )}
                     <div ref={captionEnd} />
                   </div>
@@ -986,7 +1011,9 @@ function App() {
                       {microphoneError}
                     </div>
                   )}
-                  <div className="caption-footer">
+                  <div
+                    className={`caption-footer caption-footer-${microphoneError && museStatus === 'stopped' ? 'error' : museStatus}`}
+                  >
                     <span>
                       <span className="status-dot" />{' '}
                       {museStatus === 'listening'
@@ -995,27 +1022,30 @@ function App() {
                           ? 'Connecting to Muse Voice'
                           : museStatus === 'finishing'
                             ? 'Finalizing captions'
-                            : 'Microphone paused'}
+                            : microphoneError
+                              ? 'Microphone unavailable'
+                              : 'Microphone paused'}
                     </span>
                     <span>{active.transcript.length} caption segments</span>
                   </div>
                 </section>
                 <aside className="live-side">
                   <section className="catch-card">
-                    <div className="card-icon coral">
+                    <div className="card-icon lilac">
                       <Sparkles size={22} />
                     </div>
                     <h2>Missed a moment?</h2>
                     <p>Get a quick recap of the most recent captions.</p>
                     <button
-                      className="button button-dark full"
+                      type="button"
+                      className="button button-dark full live-catch-button"
                       onClick={catchUp}
                       disabled={catchUpLoading || savingClass}
                     >
                       {catchUpLoading ? 'Generating recap...' : 'Catch me up'}{' '}
                       <ArrowRight size={17} />
                     </button>
-                    <span className="mock-note">
+                    <span className="recap-source">
                       Muse Spark recap · based on finalized captions
                     </span>
                     {catchUpNotice && (
