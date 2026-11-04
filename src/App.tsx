@@ -9,7 +9,6 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
-  Clock3,
   FileText,
   GraduationCap,
   Home,
@@ -22,7 +21,6 @@ import {
   Send,
   Sparkles,
   Trash2,
-  Volume2,
   X,
 } from 'lucide-react'
 import { lessonStorage } from './storage/lessons'
@@ -47,6 +45,7 @@ import type { MuseSession, MuseStatus } from './services/museTranscription'
 import type { LessonSession, TranscriptSegment } from './types/lesson'
 import { formatTime } from './types/lesson'
 import LandingPage from './LandingPage'
+import './HomeDashboard.css'
 
 type Page = 'home' | 'live' | 'sessions' | 'study'
 
@@ -62,6 +61,28 @@ function shortDate(date: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(date))
+}
+
+function homeGreeting(hour: number): { title: string; message: string } {
+  if (hour >= 5 && hour < 12)
+    return {
+      title: 'Good morning ☀️',
+      message: 'A fresh start for following today’s class.',
+    }
+  if (hour >= 12 && hour < 17)
+    return {
+      title: 'Good afternoon 🌤️',
+      message: 'Your next class is ready when you are.',
+    }
+  if (hour >= 17 && hour < 21)
+    return {
+      title: 'Good evening 🌙',
+      message: 'Take a moment to revisit what you learned today.',
+    }
+  return {
+    title: 'A little late-night learning? ✨',
+    message: 'Pick up where you left off, at your own pace.',
+  }
 }
 
 function createLesson(title: string): LessonSession {
@@ -641,13 +662,16 @@ function App() {
   const latestCatchUp = active?.catchUps
     .filter((item) => item.source === (isSampleSession ? 'mock' : 'muse'))
     .at(-1)
+  const greeting = homeGreeting(new Date().getHours())
 
   if (!workspaceEntered) {
     return <LandingPage onEnterWorkspace={() => setWorkspaceEntered(true)} />
   }
 
   return (
-    <div className={`app-shell ${page === 'live' ? 'live-workspace' : ''}`}>
+    <div
+      className={`app-shell ${page === 'home' || page === 'live' ? 'refreshed-workspace' : ''}`}
+    >
       <aside
         className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Main navigation"
@@ -713,72 +737,28 @@ function App() {
         <main id="main-content" tabIndex={-1}>
           {page === 'home' && (
             <div className="page-wrap home-page">
-              <div className="eyebrow">
-                <span className="eyebrow-line" /> YOUR LEARNING SPACE
-              </div>
-              <section className="hero">
-                <div className="hero-copy">
-                  <span className="hero-kicker">
-                    <Sparkles size={15} /> A CLEARER WAY TO LEARN
-                  </span>
-                  <h1>
-                    Every word matters.
-                    <br />
-                    <em>Stay in the moment.</em>
-                  </h1>
-                  <p>
-                    Follow classroom conversations with readable captions, save
-                    what matters, and revisit it at your own pace.
-                  </p>
-                  <a href="#start-class" className="button button-light">
-                    Start a class <ArrowRight size={18} />
-                  </a>
-                </div>
-                <div className="hero-art" aria-hidden="true">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-                  <div className="art-card">
-                    <span className="art-live">
-                      <span /> LIVE CAPTIONS
-                    </span>
-                    <div className="art-wave">
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                    <p>
-                      “The most recent discussion is right here, whenever you
-                      need it.”
-                    </p>
-                    <div className="art-card-bottom">
-                      <span>00:42</span>
-                      <span>● ● ●</span>
-                    </div>
-                  </div>
-                  <div className="art-sparkle">✳</div>
-                </div>
-              </section>
-              <div className="section-header">
+              <section className="home-welcome" aria-labelledby="home-greeting">
                 <div>
-                  <div className="eyebrow">GET STARTED</div>
-                  <h2>Your classroom, your pace.</h2>
+                  <h1 id="home-greeting">{greeting.title}</h1>
+                  <p>{greeting.message}</p>
                 </div>
-              </div>
-              <div className="home-grid">
-                <section className="start-card" id="start-class">
-                  <div className="card-icon teal">
+                <span className="home-welcome-mark" aria-hidden="true">
+                  <AudioLines size={27} />
+                </span>
+              </section>
+              <div className="home-dashboard-grid">
+                <section
+                  className="home-dashboard-card home-start-card"
+                  id="start-class"
+                >
+                  <div className="home-dashboard-icon" aria-hidden="true">
                     <Mic size={23} />
                   </div>
-                  <h3>Start a live class</h3>
-                  <p>Follow your class with live microphone captions.</p>
+                  <h2>Start a Live Class</h2>
+                  <p>
+                    Give your class a name, then follow along with live
+                    captions.
+                  </p>
                   <label htmlFor="class-title">Class title</label>
                   <div className="start-form">
                     <input
@@ -788,79 +768,99 @@ function App() {
                       placeholder="e.g. Biology 101"
                     />
                     <button
-                      className="button button-dark"
+                      type="button"
+                      className="button button-dark home-start-button"
                       onClick={() => void beginClass()}
                     >
-                      Start class <ArrowRight size={17} />
+                      Start class <ArrowRight size={18} />
                     </button>
                   </div>
-                  <span className="fine-print">
-                    <CircleHelp size={14} /> Muse Voice captions require
-                    microphone permission and the local ClassBridge server.
-                  </span>
+                  <p className="home-start-hint">
+                    <CircleHelp size={16} aria-hidden="true" /> Microphone
+                    permission is requested when you start the class.
+                  </p>
                 </section>
-                <section className="sessions-card">
-                  <div className="card-icon lilac">
+                <section className="home-dashboard-card home-continue-card">
+                  <div
+                    className="home-dashboard-icon home-dashboard-icon-lavender"
+                    aria-hidden="true"
+                  >
                     <BookOpen size={23} />
                   </div>
-                  <h3>Pick up where you left off</h3>
-                  <p>
-                    Your saved sessions stay on this device for easy review.
-                  </p>
+                  <h2>Continue Learning</h2>
                   {lessons.length ? (
-                    <div className="recent-list">
-                      {lessons.slice(0, 2).map((lesson) => (
-                        <button
-                          key={lesson.id}
-                          className="recent-item"
-                          onClick={() => openLesson(lesson.id)}
-                        >
-                          <span className="recent-icon">
-                            <FileText size={18} />
-                          </span>
-                          <span>
-                            <strong>{lesson.title}</strong>
-                            <small>
-                              {shortDate(lesson.date)} ·{' '}
-                              {lesson.transcript.length} captions
-                            </small>
-                          </span>
-                          <ChevronRight size={18} />
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="empty-recent">
-                      <FileText size={24} />
-                      <span>
-                        No saved sessions yet.
-                        <br />
-                        Your first class will appear here.
+                    <button
+                      type="button"
+                      className="home-continue-session"
+                      onClick={() => void openLesson(lessons[0].id)}
+                    >
+                      <span className="home-session-label">
+                        Most recent saved class
                       </span>
+                      <strong>{lessons[0].title}</strong>
+                      <span className="home-session-meta">
+                        {shortDate(lessons[0].date)} ·{' '}
+                        {lessons[0].transcript.length} captions ·{' '}
+                        {lessons[0].bookmarks.length} bookmarks
+                      </span>
+                      <span className="home-session-open">
+                        Open study session{' '}
+                        <ArrowRight size={18} aria-hidden="true" />
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="home-continue-empty">
+                      <FileText size={24} />
+                      <p>
+                        No saved classes yet. Your first finished class will
+                        appear here for review.
+                      </p>
                     </div>
                   )}
-                  <button
-                    className="text-link"
-                    onClick={() => navigate('sessions')}
-                  >
-                    View all sessions <ArrowRight size={17} />
-                  </button>
                 </section>
               </div>
-              <div className="feature-strip">
-                <div>
-                  <Volume2 size={21} />
-                  <span>Readable captions</span>
+              <section
+                className="home-recent"
+                aria-labelledby="home-recent-title"
+              >
+                <div className="home-recent-heading">
+                  <h2 id="home-recent-title">Recent Classes</h2>
+                  <button type="button" onClick={() => navigate('sessions')}>
+                    View all sessions{' '}
+                    <ArrowRight size={17} aria-hidden="true" />
+                  </button>
                 </div>
-                <div>
-                  <Clock3 size={21} />
-                  <span>Catch up anytime</span>
-                </div>
-                <div>
-                  <Bookmark size={21} />
-                  <span>Save key moments</span>
-                </div>
-              </div>
+                {lessons.length > 1 ? (
+                  <div className="home-recent-list">
+                    {lessons.slice(1, 4).map((lesson) => (
+                      <button
+                        type="button"
+                        className="home-recent-session"
+                        key={lesson.id}
+                        onClick={() => void openLesson(lesson.id)}
+                      >
+                        <span className="home-recent-icon" aria-hidden="true">
+                          <FileText size={20} />
+                        </span>
+                        <span className="home-recent-details">
+                          <strong>{lesson.title}</strong>
+                          <small>
+                            {shortDate(lesson.date)} ·{' '}
+                            {lesson.transcript.length} captions
+                          </small>
+                        </span>
+                        <ChevronRight size={19} aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="home-recent-empty">
+                    {lessons.length
+                      ? 'Your other saved classes will appear here.'
+                      : 'Your saved classes will appear here after you finish a live class.'}
+                  </p>
+                )}
+              </section>
             </div>
           )}
 

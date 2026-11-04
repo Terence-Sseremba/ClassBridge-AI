@@ -767,39 +767,39 @@ h3 {
   text-align: center;
 }
 
-/* Live Class visual refresh. Other workspace screens retain their existing styles. */
-.live-workspace {
+/* Shared shell for the refreshed Home and Live Class workspace screens. */
+.refreshed-workspace {
   background: var(--cb-page);
 }
-.live-workspace .sidebar,
-.live-workspace .topbar {
+.refreshed-workspace .sidebar,
+.refreshed-workspace .topbar {
   border-color: var(--cb-border);
   background: #fff;
 }
-.live-workspace .brand,
-.live-workspace .mobile-brand {
+.refreshed-workspace .brand,
+.refreshed-workspace .mobile-brand {
   color: var(--cb-ink);
 }
-.live-workspace .brand-mark {
+.refreshed-workspace .brand-mark {
   background: var(--cb-lavender);
   color: var(--cb-blue);
 }
-.live-workspace .brand-ai,
-.live-workspace .mobile-brand span {
+.refreshed-workspace .brand-ai,
+.refreshed-workspace .mobile-brand span {
   color: var(--cb-blue);
 }
-.live-workspace .nav-item.active {
+.refreshed-workspace .nav-item.active {
   background: #e8edff;
   color: #1747bd;
 }
-.live-workspace .nav-dot {
+.refreshed-workspace .nav-dot {
   background: var(--cb-blue);
 }
-.live-workspace .workspace-label {
+.refreshed-workspace .workspace-label {
   color: var(--cb-muted);
 }
-.live-workspace button:focus-visible,
-.live-workspace a:focus-visible {
+.refreshed-workspace button:focus-visible,
+.refreshed-workspace a:focus-visible {
   outline: 3px solid var(--cb-focus);
   outline-offset: 3px;
 }
@@ -1106,10 +1106,10 @@ h3 {
   color: var(--cb-muted);
   font-size: 13px;
 }
-.live-workspace .mobile-nav {
+.refreshed-workspace .mobile-nav {
   border-color: var(--cb-border);
 }
-.live-workspace .mobile-nav button.active {
+.refreshed-workspace .mobile-nav button.active {
   color: var(--cb-blue);
 }
 
