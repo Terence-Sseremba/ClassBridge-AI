@@ -46,6 +46,7 @@ import type { LessonSession, TranscriptSegment } from './types/lesson'
 import { formatTime } from './types/lesson'
 import LandingPage from './LandingPage'
 import './HomeDashboard.css'
+import './SavedLearning.css'
 
 type Page = 'home' | 'live' | 'sessions' | 'study'
 
@@ -669,9 +670,7 @@ function App() {
   }
 
   return (
-    <div
-      className={`app-shell ${page === 'home' || page === 'live' ? 'refreshed-workspace' : ''}`}
-    >
+    <div className="app-shell refreshed-workspace">
       <aside
         className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Main navigation"
@@ -1077,27 +1076,28 @@ function App() {
 
           {page === 'sessions' && (
             <div className="page-wrap sessions-page">
-              <div className="page-heading">
+              <div className="page-heading sessions-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> YOUR LIBRARY
-                  </div>
+                  <p className="sessions-kicker">Saved learning</p>
                   <h1 id="sessions-heading" tabIndex={-1}>
-                    My sessions
+                    My Sessions
                   </h1>
-                  <p>Lectures you saved on this device, ready when you are.</p>
+                  <p>
+                    Review your saved transcripts, Study Notes, and bookmarks.
+                  </p>
                 </div>
                 <button
-                  className="button button-dark"
+                  type="button"
+                  className="button button-dark sessions-new-button"
                   onClick={() => navigate('home')}
                 >
-                  <Plus size={18} /> New class
+                  <Plus size={18} /> Start a new class
                 </button>
               </div>
               {lessons.length ? (
                 <div className="session-list">
                   {lessons.map((lesson) => (
-                    <div className="session-row" key={lesson.id}>
+                    <article className="session-row" key={lesson.id}>
                       <button
                         type="button"
                         className="session-row-open"
@@ -1116,7 +1116,7 @@ function App() {
                           </small>
                         </span>
                         <span className="session-open">
-                          Open session <ArrowRight size={17} />
+                          Open Study Session <ArrowRight size={17} />
                         </span>
                       </button>
                       <button
@@ -1127,7 +1127,7 @@ function App() {
                       >
                         <Trash2 size={16} /> Delete
                       </button>
-                    </div>
+                    </article>
                   ))}
                 </div>
               ) : (
@@ -1137,10 +1137,12 @@ function App() {
                   </div>
                   <h2>No saved sessions yet</h2>
                   <p>
-                    Start a class, then save it to build your study library.
+                    Finish a live class to keep its transcript and Study Notes
+                    here for later.
                   </p>
                   <button
-                    className="button button-dark"
+                    type="button"
+                    className="button button-dark sessions-empty-button"
                     onClick={() => navigate('home')}
                   >
                     Start a class <ArrowRight size={17} />
@@ -1153,16 +1155,15 @@ function App() {
           {page === 'study' && active && (
             <div className="page-wrap study-page">
               <button
-                className="back-link"
+                type="button"
+                className="back-link study-back-link"
                 onClick={() => navigate('sessions')}
               >
-                <ArrowLeft size={17} /> My sessions
+                <ArrowLeft size={17} /> Back to My Sessions
               </button>
-              <div className="page-heading">
+              <div className="page-heading study-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> STUDY SESSION
-                  </div>
+                  <p className="study-kicker">Study Session</p>
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
@@ -1181,47 +1182,7 @@ function App() {
                 className={`study-layout ${isSampleSession ? '' : 'study-layout-full'}`}
               >
                 <div className="study-main">
-                  <section className="study-card">
-                    <div className="study-card-heading">
-                      <div className="card-icon teal">
-                        <FileText size={21} />
-                      </div>
-                      <div>
-                        <h2>Class transcript</h2>
-                        <p>Review what was said, in order.</p>
-                      </div>
-                    </div>
-                    {active.transcript.length ? (
-                      <div className="study-transcript">
-                        {active.transcript.map((segment) => (
-                          <div className="study-line" key={segment.id}>
-                            <time>{formatTime(segment.atSeconds)}</time>
-                            <div>
-                              <strong>{segment.speaker}</strong>
-                              <p>{segment.text}</p>
-                            </div>
-                            {active.bookmarks.some(
-                              (item) => item.segmentId === segment.id,
-                            ) && (
-                              <Bookmark
-                                size={16}
-                                fill="currentColor"
-                                className="saved-bookmark"
-                                aria-label="Bookmarked"
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="empty-text">
-                        {isSampleSession
-                          ? 'No captions were recorded in this sample session.'
-                          : 'No finalized captions were recorded in this session.'}
-                      </p>
-                    )}
-                  </section>
-                  <section className="study-card">
+                  <section className="study-card study-notes-card">
                     <div className="study-card-heading">
                       <div className="card-icon lilac">
                         <Sparkles size={21} />
@@ -1273,12 +1234,18 @@ function App() {
                       </div>
                     )}
                     {studyNotesNotice && (
-                      <p className="empty-text" role="status">
+                      <p
+                        className="empty-text study-notes-message"
+                        role="status"
+                      >
                         {studyNotesNotice}
                       </p>
                     )}
                     {studyNotesLoading && (
-                      <p className="empty-text" role="status">
+                      <p
+                        className="empty-text study-notes-message"
+                        role="status"
+                      >
                         Generating study notes...
                       </p>
                     )}
@@ -1288,7 +1255,7 @@ function App() {
                         !studyNotesNotice)) && (
                       <button
                         type="button"
-                        className="button button-dark"
+                        className="button button-dark study-notes-action"
                         onClick={() => void generateStudyNotes()}
                       >
                         <Sparkles size={16} />
@@ -1298,7 +1265,47 @@ function App() {
                       </button>
                     )}
                   </section>
-                  <section className="study-card">
+                  <section className="study-card study-transcript-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon teal">
+                        <FileText size={21} />
+                      </div>
+                      <div>
+                        <h2>Class transcript</h2>
+                        <p>Review what was said, in order.</p>
+                      </div>
+                    </div>
+                    {active.transcript.length ? (
+                      <div className="study-transcript">
+                        {active.transcript.map((segment) => (
+                          <div className="study-line" key={segment.id}>
+                            <time>{formatTime(segment.atSeconds)}</time>
+                            <div>
+                              <strong>{segment.speaker}</strong>
+                              <p>{segment.text}</p>
+                            </div>
+                            {active.bookmarks.some(
+                              (item) => item.segmentId === segment.id,
+                            ) && (
+                              <Bookmark
+                                size={16}
+                                fill="currentColor"
+                                className="saved-bookmark"
+                                aria-label="Bookmarked"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-text">
+                        {isSampleSession
+                          ? 'No captions were recorded in this sample session.'
+                          : 'No finalized captions were recorded in this session.'}
+                      </p>
+                    )}
+                  </section>
+                  <section className="study-card study-bookmarks-card">
                     <div className="study-card-heading">
                       <div className="card-icon coral">
                         <Bookmark size={21} />
