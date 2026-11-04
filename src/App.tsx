@@ -9,7 +9,6 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
-  Clock3,
   FileText,
   GraduationCap,
   Home,
@@ -22,7 +21,6 @@ import {
   Send,
   Sparkles,
   Trash2,
-  Volume2,
   X,
 } from 'lucide-react'
 import { lessonStorage } from './storage/lessons'
@@ -46,6 +44,9 @@ import { startMuseTranscription } from './services/museTranscription'
 import type { MuseSession, MuseStatus } from './services/museTranscription'
 import type { LessonSession, TranscriptSegment } from './types/lesson'
 import { formatTime } from './types/lesson'
+import LandingPage from './LandingPage'
+import './HomeDashboard.css'
+import './SavedLearning.css'
 
 type Page = 'home' | 'live' | 'sessions' | 'study'
 
@@ -61,6 +62,28 @@ function shortDate(date: string) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(date))
+}
+
+function homeGreeting(hour: number): { title: string; message: string } {
+  if (hour >= 5 && hour < 12)
+    return {
+      title: 'Good morning ☀️',
+      message: 'A fresh start for following today’s class.',
+    }
+  if (hour >= 12 && hour < 17)
+    return {
+      title: 'Good afternoon 🌤️',
+      message: 'Your next class is ready when you are.',
+    }
+  if (hour >= 17 && hour < 21)
+    return {
+      title: 'Good evening 🌙',
+      message: 'Take a moment to revisit what you learned today.',
+    }
+  return {
+    title: 'A little late-night learning? ✨',
+    message: 'Pick up where you left off, at your own pace.',
+  }
 }
 
 function createLesson(title: string): LessonSession {
@@ -82,6 +105,7 @@ function createLesson(title: string): LessonSession {
 }
 
 function App() {
+  const [workspaceEntered, setWorkspaceEntered] = useState(false)
   const [page, setPage] = useState<Page>('home')
   const [lessons, setLessons] = useState<LessonSession[]>([])
   const [active, setActive] = useState<LessonSession | null>(null)
@@ -130,6 +154,10 @@ function App() {
   }, [active])
 
   useEffect(() => {
+    if (workspaceEntered) document.getElementById('main-content')?.focus()
+  }, [workspaceEntered])
+
+  useEffect(() => {
     lessonStorage
       .list()
       .then((items) =>
@@ -150,7 +178,12 @@ function App() {
   }, [deleteTarget])
 
   useEffect(() => {
-    captionEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    captionEnd.current?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth',
+      block: 'nearest',
+    })
   }, [active?.transcript.length, interimCaption])
 
   async function startListening() {
@@ -635,10 +668,16 @@ function App() {
   const latestCatchUp = active?.catchUps
     .filter((item) => item.source === (isSampleSession ? 'mock' : 'muse'))
     .at(-1)
+  const greeting = homeGreeting(new Date().getHours())
+
+  if (!workspaceEntered) {
+    return <LandingPage onEnterWorkspace={() => setWorkspaceEntered(true)} />
+  }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell refreshed-workspace">
       <aside
+        id="workspace-navigation"
         className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}
         aria-label="Main navigation"
       >
@@ -678,10 +717,6 @@ function App() {
             <strong>Built for every learner</strong>
             <p>Follow along, catch up, and make every class count.</p>
           </div>
-          <div className="sidebar-footer">
-            <span className="status-dot" /> Foundation prototype{' '}
-            <span>v0.1</span>
-          </div>
         </div>
       </aside>
 
@@ -690,6 +725,8 @@ function App() {
           <button
             className="menu-button icon-button"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-controls="workspace-navigation"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
           >
             {menuOpen ? <X size={21} /> : <Menu size={21} />}
@@ -697,89 +734,38 @@ function App() {
           <div className="mobile-brand">
             classbridge<span>ai</span>
           </div>
-          <div className="topbar-right">
-            <span className="prototype-pill">
-              <span className="status-dot" /> FOUNDATION PROTOTYPE
-            </span>
-            <div className="avatar" aria-hidden="true">
-              CB
-            </div>
-          </div>
+          <span className="workspace-label">Student workspace</span>
         </header>
         {storageError && (
           <div className="error-banner" role="alert">
             {storageError}
           </div>
         )}
-        <main id="main-content">
+        <main id="main-content" tabIndex={-1}>
           {page === 'home' && (
             <div className="page-wrap home-page">
-              <div className="eyebrow">
-                <span className="eyebrow-line" /> YOUR LEARNING SPACE
-              </div>
-              <section className="hero">
-                <div className="hero-copy">
-                  <span className="hero-kicker">
-                    <Sparkles size={15} /> A CLEARER WAY TO LEARN
-                  </span>
-                  <h1>
-                    Every word matters.
-                    <br />
-                    <em>Stay in the moment.</em>
-                  </h1>
-                  <p>
-                    Follow classroom conversations with readable captions, save
-                    what matters, and revisit it at your own pace.
-                  </p>
-                  <a href="#start-class" className="button button-light">
-                    Start a class <ArrowRight size={18} />
-                  </a>
-                </div>
-                <div className="hero-art" aria-hidden="true">
-                  <div className="orbit orbit-one" />
-                  <div className="orbit orbit-two" />
-                  <div className="art-card">
-                    <span className="art-live">
-                      <span /> LIVE CAPTIONS
-                    </span>
-                    <div className="art-wave">
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                    <p>
-                      “The most recent discussion is right here, whenever you
-                      need it.”
-                    </p>
-                    <div className="art-card-bottom">
-                      <span>00:42</span>
-                      <span>● ● ●</span>
-                    </div>
-                  </div>
-                  <div className="art-sparkle">✳</div>
-                </div>
-              </section>
-              <div className="section-header">
+              <section className="home-welcome" aria-labelledby="home-greeting">
                 <div>
-                  <div className="eyebrow">GET STARTED</div>
-                  <h2>Your classroom, your pace.</h2>
+                  <h1 id="home-greeting">{greeting.title}</h1>
+                  <p>{greeting.message}</p>
                 </div>
-              </div>
-              <div className="home-grid">
-                <section className="start-card" id="start-class">
-                  <div className="card-icon teal">
+                <span className="home-welcome-mark" aria-hidden="true">
+                  <AudioLines size={27} />
+                </span>
+              </section>
+              <div className="home-dashboard-grid">
+                <section
+                  className="home-dashboard-card home-start-card"
+                  id="start-class"
+                >
+                  <div className="home-dashboard-icon" aria-hidden="true">
                     <Mic size={23} />
                   </div>
-                  <h3>Start a live class</h3>
-                  <p>Follow your class with live microphone captions.</p>
+                  <h2>Start a Live Class</h2>
+                  <p>
+                    Give your class a name, then follow along with live
+                    captions.
+                  </p>
                   <label htmlFor="class-title">Class title</label>
                   <div className="start-form">
                     <input
@@ -789,99 +775,133 @@ function App() {
                       placeholder="e.g. Biology 101"
                     />
                     <button
-                      className="button button-dark"
+                      type="button"
+                      className="button button-dark home-start-button"
                       onClick={() => void beginClass()}
                     >
-                      Start class <ArrowRight size={17} />
+                      Start class <ArrowRight size={18} />
                     </button>
                   </div>
-                  <span className="fine-print">
-                    <CircleHelp size={14} /> Muse Voice captions require
-                    microphone permission and the local ClassBridge server.
-                  </span>
+                  <p className="home-start-hint">
+                    <CircleHelp size={16} aria-hidden="true" /> Microphone
+                    permission is requested when you start the class.
+                  </p>
                 </section>
-                <section className="sessions-card">
-                  <div className="card-icon lilac">
+                <section className="home-dashboard-card home-continue-card">
+                  <div
+                    className="home-dashboard-icon home-dashboard-icon-lavender"
+                    aria-hidden="true"
+                  >
                     <BookOpen size={23} />
                   </div>
-                  <h3>Pick up where you left off</h3>
-                  <p>
-                    Your saved sessions stay on this device for easy review.
-                  </p>
+                  <h2>Continue Learning</h2>
                   {lessons.length ? (
-                    <div className="recent-list">
-                      {lessons.slice(0, 2).map((lesson) => (
-                        <button
-                          key={lesson.id}
-                          className="recent-item"
-                          onClick={() => openLesson(lesson.id)}
-                        >
-                          <span className="recent-icon">
-                            <FileText size={18} />
-                          </span>
-                          <span>
-                            <strong>{lesson.title}</strong>
-                            <small>
-                              {shortDate(lesson.date)} ·{' '}
-                              {lesson.transcript.length} captions
-                            </small>
-                          </span>
-                          <ChevronRight size={18} />
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="empty-recent">
-                      <FileText size={24} />
-                      <span>
-                        No saved sessions yet.
-                        <br />
-                        Your first class will appear here.
+                    <button
+                      type="button"
+                      className="home-continue-session"
+                      onClick={() => void openLesson(lessons[0].id)}
+                    >
+                      <span className="home-session-label">
+                        Most recent saved class
                       </span>
+                      <strong>{lessons[0].title}</strong>
+                      <span className="home-session-meta">
+                        {shortDate(lessons[0].date)} ·{' '}
+                        {lessons[0].transcript.length} captions ·{' '}
+                        {lessons[0].bookmarks.length} bookmarks
+                      </span>
+                      <span className="home-session-open">
+                        Open study session{' '}
+                        <ArrowRight size={18} aria-hidden="true" />
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="home-continue-empty">
+                      <FileText size={24} />
+                      <p>
+                        No saved classes yet. Your first finished class will
+                        appear here for review.
+                      </p>
                     </div>
                   )}
-                  <button
-                    className="text-link"
-                    onClick={() => navigate('sessions')}
-                  >
-                    View all sessions <ArrowRight size={17} />
-                  </button>
                 </section>
               </div>
-              <div className="feature-strip">
-                <div>
-                  <Volume2 size={21} />
-                  <span>Readable captions</span>
+              <section
+                className="home-recent"
+                aria-labelledby="home-recent-title"
+              >
+                <div className="home-recent-heading">
+                  <h2 id="home-recent-title">Recent Classes</h2>
+                  <button type="button" onClick={() => navigate('sessions')}>
+                    View all sessions{' '}
+                    <ArrowRight size={17} aria-hidden="true" />
+                  </button>
                 </div>
-                <div>
-                  <Clock3 size={21} />
-                  <span>Catch up anytime</span>
-                </div>
-                <div>
-                  <Bookmark size={21} />
-                  <span>Save key moments</span>
-                </div>
-              </div>
+                {lessons.length > 1 ? (
+                  <div className="home-recent-list">
+                    {lessons.slice(1, 4).map((lesson) => (
+                      <button
+                        type="button"
+                        className="home-recent-session"
+                        key={lesson.id}
+                        onClick={() => void openLesson(lesson.id)}
+                      >
+                        <span className="home-recent-icon" aria-hidden="true">
+                          <FileText size={20} />
+                        </span>
+                        <span className="home-recent-details">
+                          <strong>{lesson.title}</strong>
+                          <small>
+                            {shortDate(lesson.date)} ·{' '}
+                            {lesson.transcript.length} captions
+                          </small>
+                        </span>
+                        <ChevronRight size={19} aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="home-recent-empty">
+                    {lessons.length
+                      ? 'Your other saved classes will appear here.'
+                      : 'Your saved classes will appear here after you finish a live class.'}
+                  </p>
+                )}
+              </section>
             </div>
           )}
 
           {page === 'live' && active && (
             <div className="page-wrap live-page">
-              <div className="page-heading">
+              <div className="page-heading live-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> LIVE CLASSROOM
-                  </div>
+                  <span
+                    className={`live-page-status live-page-status-${microphoneError && museStatus === 'stopped' ? 'error' : museStatus}`}
+                    role="status"
+                  >
+                    <span aria-hidden="true" />
+                    {museStatus === 'listening'
+                      ? 'Microphone listening'
+                      : museStatus === 'connecting'
+                        ? 'Connecting to Muse Voice'
+                        : museStatus === 'finishing'
+                          ? 'Finalizing captions'
+                          : microphoneError
+                            ? 'Microphone unavailable'
+                            : 'Microphone paused'}
+                  </span>
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
-                    <span className="separator">·</span> Microphone session
+                    <span className="separator">·</span> Live class
                   </p>
                 </div>
                 <button
-                  className="button button-outline"
+                  type="button"
+                  className="button button-dark live-save-button"
                   onClick={() => void saveClass()}
                   disabled={savingClass}
+                  aria-busy={savingClass}
                 >
                   <Check size={17} />{' '}
                   {savingClass ? 'Finalizing and saving...' : 'Save & finish'}
@@ -891,20 +911,14 @@ function App() {
                 <section className="caption-card">
                   <div className="card-top">
                     <div>
-                      <span className="live-indicator">
-                        <span />{' '}
-                        {museStatus === 'listening'
-                          ? 'MUSE VOICE LIVE'
-                          : museStatus === 'connecting'
-                            ? 'CONNECTING TO MUSE'
-                            : museStatus === 'finishing'
-                              ? 'FINISHING TRANSCRIPT'
-                              : 'MICROPHONE PAUSED'}
-                      </span>
                       <h2>Live captions</h2>
+                      <p>
+                        Finalized speech appears here as the class continues.
+                      </p>
                     </div>
                     <button
-                      className="icon-button playback"
+                      type="button"
+                      className="live-microphone-control"
                       onClick={() => {
                         if (listening) void stopListening()
                         else void startListening()
@@ -915,12 +929,25 @@ function App() {
                         museStatus === 'finishing'
                       }
                       aria-label={
-                        listening
-                          ? 'Pause microphone transcription'
-                          : 'Resume microphone transcription'
+                        museStatus === 'connecting'
+                          ? 'Connecting to Muse Voice'
+                          : museStatus === 'finishing'
+                            ? 'Finalizing microphone transcription'
+                            : listening
+                              ? 'Pause microphone transcription'
+                              : 'Resume microphone transcription'
                       }
                     >
                       {listening ? <Pause size={19} /> : <Play size={19} />}
+                      <span>
+                        {museStatus === 'connecting'
+                          ? 'Connecting...'
+                          : museStatus === 'finishing'
+                            ? 'Finishing...'
+                            : listening
+                              ? 'Pause microphone'
+                              : 'Resume microphone'}
+                      </span>
                     </button>
                   </div>
                   <div
@@ -936,7 +963,6 @@ function App() {
                             {formatTime(segment.atSeconds)}
                           </span>
                           <div>
-                            <strong>{segment.speaker}</strong>
                             <p>{segment.text}</p>
                           </div>
                           <button
@@ -972,13 +998,18 @@ function App() {
                             ? 'Listening for speech...'
                             : museStatus === 'connecting'
                               ? 'Connecting to Muse Voice...'
-                              : 'Microphone is paused'}
+                              : museStatus === 'finishing'
+                                ? 'Finalizing captions...'
+                                : 'Microphone is paused'}
                         </strong>
                         <span>Recognized speech will appear here.</span>
                       </div>
                     )}
                     {interimCaption && (
-                      <p className="interim-caption">{interimCaption}</p>
+                      <p className="interim-caption">
+                        <span className="interim-label">In progress</span>
+                        {interimCaption}
+                      </p>
                     )}
                     <div ref={captionEnd} />
                   </div>
@@ -987,7 +1018,9 @@ function App() {
                       {microphoneError}
                     </div>
                   )}
-                  <div className="caption-footer">
+                  <div
+                    className={`caption-footer caption-footer-${microphoneError && museStatus === 'stopped' ? 'error' : museStatus}`}
+                  >
                     <span>
                       <span className="status-dot" />{' '}
                       {museStatus === 'listening'
@@ -996,27 +1029,30 @@ function App() {
                           ? 'Connecting to Muse Voice'
                           : museStatus === 'finishing'
                             ? 'Finalizing captions'
-                            : 'Microphone paused'}
+                            : microphoneError
+                              ? 'Microphone unavailable'
+                              : 'Microphone paused'}
                     </span>
                     <span>{active.transcript.length} caption segments</span>
                   </div>
                 </section>
                 <aside className="live-side">
                   <section className="catch-card">
-                    <div className="card-icon coral">
+                    <div className="card-icon lilac">
                       <Sparkles size={22} />
                     </div>
                     <h2>Missed a moment?</h2>
                     <p>Get a quick recap of the most recent captions.</p>
                     <button
-                      className="button button-dark full"
+                      type="button"
+                      className="button button-dark full live-catch-button"
                       onClick={catchUp}
                       disabled={catchUpLoading || savingClass}
                     >
                       {catchUpLoading ? 'Generating recap...' : 'Catch me up'}{' '}
                       <ArrowRight size={17} />
                     </button>
-                    <span className="mock-note">
+                    <span className="recap-source">
                       Muse Spark recap · based on finalized captions
                     </span>
                     {catchUpNotice && (
@@ -1048,27 +1084,28 @@ function App() {
 
           {page === 'sessions' && (
             <div className="page-wrap sessions-page">
-              <div className="page-heading">
+              <div className="page-heading sessions-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> YOUR LIBRARY
-                  </div>
+                  <p className="sessions-kicker">Saved learning</p>
                   <h1 id="sessions-heading" tabIndex={-1}>
-                    My sessions
+                    My Sessions
                   </h1>
-                  <p>Lectures you saved on this device, ready when you are.</p>
+                  <p>
+                    Review your saved transcripts, Study Notes, and bookmarks.
+                  </p>
                 </div>
                 <button
-                  className="button button-dark"
+                  type="button"
+                  className="button button-dark sessions-new-button"
                   onClick={() => navigate('home')}
                 >
-                  <Plus size={18} /> New class
+                  <Plus size={18} /> Start a new class
                 </button>
               </div>
               {lessons.length ? (
                 <div className="session-list">
                   {lessons.map((lesson) => (
-                    <div className="session-row" key={lesson.id}>
+                    <article className="session-row" key={lesson.id}>
                       <button
                         type="button"
                         className="session-row-open"
@@ -1087,7 +1124,7 @@ function App() {
                           </small>
                         </span>
                         <span className="session-open">
-                          Open session <ArrowRight size={17} />
+                          Open Study Session <ArrowRight size={17} />
                         </span>
                       </button>
                       <button
@@ -1098,7 +1135,7 @@ function App() {
                       >
                         <Trash2 size={16} /> Delete
                       </button>
-                    </div>
+                    </article>
                   ))}
                 </div>
               ) : (
@@ -1108,10 +1145,12 @@ function App() {
                   </div>
                   <h2>No saved sessions yet</h2>
                   <p>
-                    Start a class, then save it to build your study library.
+                    Finish a live class to keep its transcript and Study Notes
+                    here for later.
                   </p>
                   <button
-                    className="button button-dark"
+                    type="button"
+                    className="button button-dark sessions-empty-button"
                     onClick={() => navigate('home')}
                   >
                     Start a class <ArrowRight size={17} />
@@ -1124,16 +1163,15 @@ function App() {
           {page === 'study' && active && (
             <div className="page-wrap study-page">
               <button
-                className="back-link"
+                type="button"
+                className="back-link study-back-link"
                 onClick={() => navigate('sessions')}
               >
-                <ArrowLeft size={17} /> My sessions
+                <ArrowLeft size={17} /> Back to My Sessions
               </button>
-              <div className="page-heading">
+              <div className="page-heading study-page-heading">
                 <div>
-                  <div className="eyebrow">
-                    <span className="eyebrow-line" /> STUDY SESSION
-                  </div>
+                  <p className="study-kicker">Study Session</p>
                   <h1>{active.title}</h1>
                   <p>
                     {shortDate(active.date)}{' '}
@@ -1152,47 +1190,7 @@ function App() {
                 className={`study-layout ${isSampleSession ? '' : 'study-layout-full'}`}
               >
                 <div className="study-main">
-                  <section className="study-card">
-                    <div className="study-card-heading">
-                      <div className="card-icon teal">
-                        <FileText size={21} />
-                      </div>
-                      <div>
-                        <h2>Class transcript</h2>
-                        <p>Review what was said, in order.</p>
-                      </div>
-                    </div>
-                    {active.transcript.length ? (
-                      <div className="study-transcript">
-                        {active.transcript.map((segment) => (
-                          <div className="study-line" key={segment.id}>
-                            <time>{formatTime(segment.atSeconds)}</time>
-                            <div>
-                              <strong>{segment.speaker}</strong>
-                              <p>{segment.text}</p>
-                            </div>
-                            {active.bookmarks.some(
-                              (item) => item.segmentId === segment.id,
-                            ) && (
-                              <Bookmark
-                                size={16}
-                                fill="currentColor"
-                                className="saved-bookmark"
-                                aria-label="Bookmarked"
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="empty-text">
-                        {isSampleSession
-                          ? 'No captions were recorded in this sample session.'
-                          : 'No finalized captions were recorded in this session.'}
-                      </p>
-                    )}
-                  </section>
-                  <section className="study-card">
+                  <section className="study-card study-notes-card">
                     <div className="study-card-heading">
                       <div className="card-icon lilac">
                         <Sparkles size={21} />
@@ -1244,12 +1242,18 @@ function App() {
                       </div>
                     )}
                     {studyNotesNotice && (
-                      <p className="empty-text" role="status">
+                      <p
+                        className="empty-text study-notes-message"
+                        role="status"
+                      >
                         {studyNotesNotice}
                       </p>
                     )}
                     {studyNotesLoading && (
-                      <p className="empty-text" role="status">
+                      <p
+                        className="empty-text study-notes-message"
+                        role="status"
+                      >
                         Generating study notes...
                       </p>
                     )}
@@ -1259,7 +1263,7 @@ function App() {
                         !studyNotesNotice)) && (
                       <button
                         type="button"
-                        className="button button-dark"
+                        className="button button-dark study-notes-action"
                         onClick={() => void generateStudyNotes()}
                       >
                         <Sparkles size={16} />
@@ -1269,7 +1273,47 @@ function App() {
                       </button>
                     )}
                   </section>
-                  <section className="study-card">
+                  <section className="study-card study-transcript-card">
+                    <div className="study-card-heading">
+                      <div className="card-icon teal">
+                        <FileText size={21} />
+                      </div>
+                      <div>
+                        <h2>Class transcript</h2>
+                        <p>Review what was said, in order.</p>
+                      </div>
+                    </div>
+                    {active.transcript.length ? (
+                      <div className="study-transcript">
+                        {active.transcript.map((segment) => (
+                          <div className="study-line" key={segment.id}>
+                            <time>{formatTime(segment.atSeconds)}</time>
+                            <div>
+                              <strong>{segment.speaker}</strong>
+                              <p>{segment.text}</p>
+                            </div>
+                            {active.bookmarks.some(
+                              (item) => item.segmentId === segment.id,
+                            ) && (
+                              <Bookmark
+                                size={16}
+                                fill="currentColor"
+                                className="saved-bookmark"
+                                aria-label="Bookmarked"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-text">
+                        {isSampleSession
+                          ? 'No captions were recorded in this sample session.'
+                          : 'No finalized captions were recorded in this session.'}
+                      </p>
+                    )}
+                  </section>
+                  <section className="study-card study-bookmarks-card">
                     <div className="study-card-heading">
                       <div className="card-icon coral">
                         <Bookmark size={21} />
