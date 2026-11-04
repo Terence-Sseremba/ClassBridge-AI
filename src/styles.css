@@ -186,18 +186,6 @@ h3 {
   color: #7a8985;
   margin: 7px 0 0;
 }
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-top: 1px solid #edf0ec;
-  padding: 19px 5px 0;
-  color: #9aa7a4;
-  font-size: 11px;
-}
-.sidebar-footer > span:last-child {
-  margin-left: auto;
-}
 .status-dot {
   display: inline-block;
   width: 7px;
@@ -219,33 +207,10 @@ h3 {
   justify-content: flex-end;
   padding: 0 45px;
 }
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 21px;
-}
-.prototype-pill {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  color: #60877c;
-  background: #edf6f1;
-  padding: 10px 14px;
-  border-radius: 100px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.avatar {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #e6d8ca;
-  color: #6b5145;
-  font-size: 11px;
-  font-weight: 800;
+.workspace-label {
+  color: #52665b;
+  font-size: 14px;
+  font-weight: 700;
 }
 .menu-button,
 .mobile-brand,
@@ -1237,9 +1202,6 @@ h3 {
     font-weight: 850;
     letter-spacing: -0.06em;
     color: #174943;
-  }
-  .prototype-pill {
-    display: none;
   }
   .page-wrap {
     padding: 27px 20px 95px;

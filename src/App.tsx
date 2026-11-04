@@ -46,6 +46,7 @@ import { startMuseTranscription } from './services/museTranscription'
 import type { MuseSession, MuseStatus } from './services/museTranscription'
 import type { LessonSession, TranscriptSegment } from './types/lesson'
 import { formatTime } from './types/lesson'
+import LandingPage from './LandingPage'
 
 type Page = 'home' | 'live' | 'sessions' | 'study'
 
@@ -82,6 +83,7 @@ function createLesson(title: string): LessonSession {
 }
 
 function App() {
+  const [workspaceEntered, setWorkspaceEntered] = useState(false)
   const [page, setPage] = useState<Page>('home')
   const [lessons, setLessons] = useState<LessonSession[]>([])
   const [active, setActive] = useState<LessonSession | null>(null)
@@ -128,6 +130,10 @@ function App() {
   useEffect(() => {
     activeRef.current = active
   }, [active])
+
+  useEffect(() => {
+    if (workspaceEntered) document.getElementById('main-content')?.focus()
+  }, [workspaceEntered])
 
   useEffect(() => {
     lessonStorage
@@ -636,6 +642,10 @@ function App() {
     .filter((item) => item.source === (isSampleSession ? 'mock' : 'muse'))
     .at(-1)
 
+  if (!workspaceEntered) {
+    return <LandingPage onEnterWorkspace={() => setWorkspaceEntered(true)} />
+  }
+
   return (
     <div className="app-shell">
       <aside
@@ -678,10 +688,6 @@ function App() {
             <strong>Built for every learner</strong>
             <p>Follow along, catch up, and make every class count.</p>
           </div>
-          <div className="sidebar-footer">
-            <span className="status-dot" /> Foundation prototype{' '}
-            <span>v0.1</span>
-          </div>
         </div>
       </aside>
 
@@ -697,21 +703,14 @@ function App() {
           <div className="mobile-brand">
             classbridge<span>ai</span>
           </div>
-          <div className="topbar-right">
-            <span className="prototype-pill">
-              <span className="status-dot" /> FOUNDATION PROTOTYPE
-            </span>
-            <div className="avatar" aria-hidden="true">
-              CB
-            </div>
-          </div>
+          <span className="workspace-label">Student workspace</span>
         </header>
         {storageError && (
           <div className="error-banner" role="alert">
             {storageError}
           </div>
         )}
-        <main id="main-content">
+        <main id="main-content" tabIndex={-1}>
           {page === 'home' && (
             <div className="page-wrap home-page">
               <div className="eyebrow">
