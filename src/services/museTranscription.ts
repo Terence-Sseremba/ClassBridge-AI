@@ -1,3 +1,5 @@
+import { transcriptionSocketUrl } from './apiUrl'
+
 export type MuseStatus = 'connecting' | 'listening' | 'finishing' | 'stopped'
 
 export interface MuseTranscript {
@@ -17,11 +19,6 @@ type ServerEvent = {
   message?: string
 }
 
-function socketUrl(): string {
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${location.host}/api/transcription`
-}
-
 export async function startMuseTranscription(
   onTranscript: (result: MuseTranscript) => void,
   onStatus: (status: MuseStatus) => void,
@@ -33,6 +30,7 @@ export async function startMuseTranscription(
     )
   }
 
+  const socketUrl = transcriptionSocketUrl()
   onStatus('connecting')
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -41,7 +39,7 @@ export async function startMuseTranscription(
       noiseSuppression: false,
     },
   })
-  const socket = new WebSocket(socketUrl())
+  const socket = new WebSocket(socketUrl)
   const context = new AudioContext()
   let source: MediaStreamAudioSourceNode | undefined
   let processor: AudioWorkletNode | undefined

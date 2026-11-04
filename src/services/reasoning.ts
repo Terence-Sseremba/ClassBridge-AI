@@ -5,6 +5,7 @@ import type {
   StudyNotes,
   TranscriptSegment,
 } from '../types/lesson'
+import { apiUrl } from './apiUrl'
 
 const CONTEXT_SECONDS = 5 * 60
 const MAX_CONTEXT_CHARACTERS = 12000
@@ -67,7 +68,7 @@ export async function museStudyNotes(
 ): Promise<StudyNotesContent> {
   let response: Response
   try {
-    response = await fetch('/api/study-notes', {
+    response = await fetch(apiUrl('/api/study-notes'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ segments }),
@@ -188,7 +189,7 @@ export function hasEnoughCatchUpContext(
 export async function museCatchUp(
   segments: TranscriptSegment[],
 ): Promise<CatchUpExplanation> {
-  const response = await fetch('/api/catch-up', {
+  const response = await fetch(apiUrl('/api/catch-up'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ segments }),
